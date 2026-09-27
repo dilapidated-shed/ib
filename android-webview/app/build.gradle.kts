@@ -93,6 +93,15 @@ tasks.register("verifyWebViewBoundary") {
         check(implementation.contains("setSaveEnabled(false)")) {
             "The WebView hierarchy must not become the hidden form persistence mechanism."
         }
+        check(implementation.contains("navigation-timing")) {
+            "The live browser path must expose page-load timing in physical receipts."
+        }
+        check(implementation.contains("Executors.newSingleThreadExecutor")) {
+            "Diagnostic receipt writes must stay off the Android UI thread."
+        }
+        check(!implementation.contains("persist_or_block(false, \"heap-observation\")")) {
+            "Heap-canary observations are diagnostics and must not force durable writes."
+        }
         check(!implementation.contains(".saveState(")) {
             "Do not use WebView.saveState() as acceptance evidence."
         }
