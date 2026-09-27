@@ -108,3 +108,69 @@ jobs:
             adb install -r downloaded-apk/app-debug.apk
             adb install -r downloaded-apk/app-debug.apk
             adb install -r downloaded-apk/app-debug.apk
+
+  low-memory-real-page-smoke:
+    needs: build-apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ib-webview-protected-transaction-apk
+          path: downloaded-apk
+
+      - name: Load DuckDuckGo in a deliberately small Android 14 emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          cores: 1
+          ram-size: 1024M
+          heap-size: 192M
+          disable-animations: true
+          script: |
+            set -eu
+
+            package=org.isomorphisms.ib.webview
+            activity="$package/.LongViewActivity"
+            url='https://duckduckgo.com/?q=ib+browser+smoke'
+
+            mkdir -p low-memory-page-smoke
+            adb install -r downloaded-apk/app-debug.apk
+            adb shell wm size 480x800
+            adb shell wm density 240
+            adb shell am force-stop "$package"
+
+            adb shell am start -W -n "$activity" --es url "$url"               | tee low-memory-page-smoke/am-start.txt
+
+            passed=false
+            for second in $(seq 1 45); do
+              if adb shell run-as "$package" sh -c 'cat files/receipts/*/*.tsv'                    > low-memory-page-smoke/receipt.tsv 2>/dev/null; then
+                if grep -Fq 'stage=commit-visible' low-memory-page-smoke/receipt.tsv                    && grep -Fq 'stage=page-finished' low-memory-page-smoke/receipt.tsv                    && grep -F 'navigation-timing' low-memory-page-smoke/receipt.tsv                         | grep -Fq 'available=true'; then
+                  passed=true
+                  break
+                fi
+              fi
+              sleep 1
+            done
+
+            adb exec-out screencap -p > low-memory-page-smoke/duckduckgo.png || true
+            adb shell dumpsys meminfo "$package" > low-memory-page-smoke/meminfo.txt || true
+            adb shell dumpsys webviewupdate > low-memory-page-smoke/webview.txt || true
+
+            cat low-memory-page-smoke/receipt.tsv || true
+
+            test "$passed" = true
+            ! grep -Fq \terror\t' low-memory-page-smoke/receipt.tsv
+            grep -Fq 'stage=page-started' low-memory-page-smoke/receipt.tsv
+            grep -Fq 'stage=commit-visible' low-memory-page-smoke/receipt.tsv
+            grep -Fq 'stage=page-finished' low-memory-page-smoke/receipt.tsv
+            grep -F 'navigation-timing' low-memory-page-smoke/receipt.tsv               | grep -Fq 'available=true'
+
+      - name: Upload low-memory page-load evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ib-low-memory-real-page-smoke
+          path: low-memory-page-smoke/
