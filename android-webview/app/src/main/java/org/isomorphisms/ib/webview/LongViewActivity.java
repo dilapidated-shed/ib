@@ -314,6 +314,7 @@ public final class LongViewActivity extends Activity {
                 if (request.isForMainFrame() && request.hasGesture()) {
                     try {
                         begin_browser_navigation(request.getUrl().toString(), "page-gesture");
+                        begin_load_trace(request.getUrl().toString(), "page-gesture");
                     } catch (IllegalArgumentException exception) {
                         record("navigation", "blocked-unsafe-target");
                         return true;
@@ -326,26 +327,28 @@ public final class LongViewActivity extends Activity {
             public void onPageStarted(WebView started_view, String url, android.graphics.Bitmap favicon) {
                 super.onPageStarted(started_view, url, favicon);
                 last_progress_bucket = -1;
-                observe_neutral_navigation(url);
+                long page_started_elapsed = load_elapsed_ms();
                 record(
                     "load-stage",
                     "sequence=" + load_sequence
-                        + " stage=page-started elapsed-ms=" + load_elapsed_ms()
+                        + " stage=page-started elapsed-ms=" + page_started_elapsed
                         + " target=" + safe_target_identity(url)
                 );
+                observe_neutral_navigation(url);
             }
 
             @Override
             public void onPageCommitVisible(WebView committed_view, String url) {
                 super.onPageCommitVisible(committed_view, url);
                 task = task.page_committed(System.currentTimeMillis());
-                persist_or_block(false, "page-commit");
+                long commit_visible_elapsed = load_elapsed_ms();
                 record(
                     "load-stage",
                     "sequence=" + load_sequence
-                        + " stage=commit-visible elapsed-ms=" + load_elapsed_ms()
+                        + " stage=commit-visible elapsed-ms=" + commit_visible_elapsed
                         + " " + task_receipt("commit")
                 );
+                persist_or_block(false, "page-commit");
                 sample_navigation_timing(committed_view, "commit-visible");
                 install_form_dirty_tracker(committed_view);
                 sample_page("commit-visible");
@@ -475,17 +478,21 @@ public final class LongViewActivity extends Activity {
     }
 
     private void load_url(String url, String reason) {
+        begin_load_trace(url, reason);
+        web_view.loadUrl(url);
+    }
+
+    private void begin_load_trace(String url, String reason) {
         load_sequence += 1;
         load_requested_at = SystemClock.elapsedRealtime();
         last_progress_bucket = -1;
         record(
             "load",
             "sequence=" + load_sequence
-                + " stage=loadUrl elapsed-ms=0"
+                + " stage=requested elapsed-ms=0"
                 + " reason=" + clean(reason)
                 + " target=" + safe_target_identity(url)
         );
-        web_view.loadUrl(url);
     }
 
     private long load_elapsed_ms() {
