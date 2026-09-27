@@ -34,6 +34,8 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /** The live WebView adapter for one browser-owned protected long-view task. */
 public final class LongViewActivity extends Activity {
@@ -41,6 +43,7 @@ public final class LongViewActivity extends Activity {
         "https://console.cloud.google.com/auth/scopes?project=cockswain&authuser=5";
 
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ExecutorService receipt_writer = Executors.newSingleThreadExecutor();
     private final Runnable periodic_sample = new Runnable() {
         @Override
         public void run() {
@@ -61,6 +64,9 @@ public final class LongViewActivity extends Activity {
     private String observed_heap_canary;
     private long started_at;
     private long offscreen_started_at;
+    private long state_recovery_ms;
+    private long load_requested_at;
+    private int load_sequence;
     private int last_progress_bucket = -1;
     private boolean form_dirty;
     private boolean destroyed;
@@ -71,6 +77,7 @@ public final class LongViewActivity extends Activity {
         started_at = SystemClock.elapsedRealtime();
         run_identity = "run-" + UUID.randomUUID();
         store = new DurableTaskStore(getFilesDir().toPath());
+        long state_recovery_started_at = SystemClock.elapsedRealtime();
 
         String supplied_url = getIntent().getStringExtra("url");
         String requested_url = supplied_url == null || supplied_url.trim().isEmpty()
@@ -108,9 +115,11 @@ public final class LongViewActivity extends Activity {
             return;
         }
 
+        state_recovery_ms = SystemClock.elapsedRealtime() - state_recovery_started_at;
         receipt_file = create_receipt_file();
         build_ui();
         record("run", device_and_artifact_receipt());
+        record("startup", "state-recovery-and-checkpoint-ms=" + state_recovery_ms);
         record("task", task_receipt("discovered"));
         record(
             "session-profile",
@@ -125,7 +134,7 @@ public final class LongViewActivity extends Activity {
         if (task.navigation.recovery == DurableNavigation.Recovery.UNAVAILABLE) {
             mark_remote_site_blocked("no-safe-navigation");
         } else {
-            web_view.loadUrl(volatile_initial_url);
+            load_url(volatile_initial_url, "initial");
         }
         handler.postDelayed(periodic_sample, 5000);
     }
@@ -174,6 +183,7 @@ public final class LongViewActivity extends Activity {
         destroyed = true;
         handler.removeCallbacks(periodic_sample);
         destroy_webview();
+        receipt_writer.shutdown();
         super.onDestroy();
     }
 
@@ -260,7 +270,12 @@ public final class LongViewActivity extends Activity {
             return;
         }
         String renderer_identity = "renderer-" + UUID.randomUUID();
+        long constructor_started_at = SystemClock.elapsedRealtime();
         WebView view = new WebView(this);
+        record(
+            "webview",
+            "constructor-ms=" + (SystemClock.elapsedRealtime() - constructor_started_at)
+        );
         view.setSaveEnabled(false);
         view.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false);
 
@@ -284,7 +299,12 @@ public final class LongViewActivity extends Activity {
                 int bucket = Math.min(100, (new_progress / 10) * 10);
                 if (bucket != last_progress_bucket) {
                     last_progress_bucket = bucket;
-                    record("progress", "percent=" + bucket);
+                    record(
+                        "progress",
+                        "sequence=" + load_sequence
+                            + " elapsed-ms=" + load_elapsed_ms()
+                            + " percent=" + bucket
+                    );
                 }
             }
         });
@@ -307,7 +327,12 @@ public final class LongViewActivity extends Activity {
                 super.onPageStarted(started_view, url, favicon);
                 last_progress_bucket = -1;
                 observe_neutral_navigation(url);
-                record("navigation", "started " + safe_target_identity(url));
+                record(
+                    "load-stage",
+                    "sequence=" + load_sequence
+                        + " stage=page-started elapsed-ms=" + load_elapsed_ms()
+                        + " target=" + safe_target_identity(url)
+                );
             }
 
             @Override
@@ -315,7 +340,13 @@ public final class LongViewActivity extends Activity {
                 super.onPageCommitVisible(committed_view, url);
                 task = task.page_committed(System.currentTimeMillis());
                 persist_or_block(false, "page-commit");
-                record("paint", "commit-visible " + task_receipt("commit"));
+                record(
+                    "load-stage",
+                    "sequence=" + load_sequence
+                        + " stage=commit-visible elapsed-ms=" + load_elapsed_ms()
+                        + " " + task_receipt("commit")
+                );
+                sample_navigation_timing(committed_view, "commit-visible");
                 install_form_dirty_tracker(committed_view);
                 sample_page("commit-visible");
             }
@@ -323,7 +354,13 @@ public final class LongViewActivity extends Activity {
             @Override
             public void onPageFinished(WebView finished_view, String url) {
                 super.onPageFinished(finished_view, url);
-                record("navigation", "page-finished " + safe_target_identity(url));
+                record(
+                    "load-stage",
+                    "sequence=" + load_sequence
+                        + " stage=page-finished elapsed-ms=" + load_elapsed_ms()
+                        + " target=" + safe_target_identity(url)
+                );
+                sample_navigation_timing(finished_view, "page-finished");
                 install_form_dirty_tracker(finished_view);
                 sample_page("page-finished");
             }
@@ -336,7 +373,12 @@ public final class LongViewActivity extends Activity {
             ) {
                 super.onReceivedError(error_view, request, error);
                 if (request.isForMainFrame()) {
-                    record("error", "main-frame code=" + error.getErrorCode());
+                    record(
+                        "error",
+                        "sequence=" + load_sequence
+                            + " elapsed-ms=" + load_elapsed_ms()
+                            + " main-frame code=" + error.getErrorCode()
+                    );
                 }
             }
 
@@ -388,7 +430,7 @@ public final class LongViewActivity extends Activity {
         if (web_view == null) {
             attach_webview(false);
         }
-        web_view.loadUrl(requested);
+        load_url(requested, "address-bar");
     }
 
     private void begin_browser_navigation(String requested, String source) {
@@ -429,7 +471,60 @@ public final class LongViewActivity extends Activity {
                 + " address=" + task.navigation.recovery.record_text
                 + " authenticated=not-proven"
         );
-        web_view.loadUrl(task.navigation.neutral_url);
+        load_url(task.navigation.neutral_url, "reconstruction-" + reason);
+    }
+
+    private void load_url(String url, String reason) {
+        load_sequence += 1;
+        load_requested_at = SystemClock.elapsedRealtime();
+        last_progress_bucket = -1;
+        record(
+            "load",
+            "sequence=" + load_sequence
+                + " stage=loadUrl elapsed-ms=0"
+                + " reason=" + clean(reason)
+                + " target=" + safe_target_identity(url)
+        );
+        web_view.loadUrl(url);
+    }
+
+    private long load_elapsed_ms() {
+        if (load_requested_at == 0) {
+            return -1;
+        }
+        return SystemClock.elapsedRealtime() - load_requested_at;
+    }
+
+    private void sample_navigation_timing(WebView view, String reason) {
+        String script = "(function(){"
+            + "var n=performance.getEntriesByType('navigation')[0];"
+            + "if(!n){return 'available=false';}"
+            + "var r=function(x){return Math.max(0,Math.round(x||0));};"
+            + "var tls=n.secureConnectionStart>0?r(n.connectEnd-n.secureConnectionStart):0;"
+            + "return 'available=true'"
+            + "+';dns-ms='+r(n.domainLookupEnd-n.domainLookupStart)"
+            + "+';connect-ms='+r(n.connectEnd-n.connectStart)"
+            + "+';tls-ms='+tls"
+            + "+';request-to-first-byte-ms='+r(n.responseStart-n.requestStart)"
+            + "+';response-ms='+r(n.responseEnd-n.responseStart)"
+            + "+';dom-interactive-ms='+r(n.domInteractive)"
+            + "+';dom-content-loaded-ms='+r(n.domContentLoadedEventEnd)"
+            + "+';load-event-ms='+r(n.loadEventEnd)"
+            + "+';redirect-count='+r(n.redirectCount)"
+            + "+';transfer-size='+r(n.transferSize)"
+            + "+';encoded-body-size='+r(n.encodedBodySize)"
+            + "+';decoded-body-size='+r(n.decodedBodySize)"
+            + "+';protocol='+(n.nextHopProtocol||'unknown');"
+            + "})()";
+        view.evaluateJavascript(
+            script,
+            result -> record(
+                "navigation-timing",
+                "sequence=" + load_sequence
+                    + " reason=" + clean(reason)
+                    + " metrics=" + clean(result)
+            )
+        );
     }
 
     private void kill_renderer() {
@@ -449,7 +544,10 @@ public final class LongViewActivity extends Activity {
     private void kill_host_process() {
         persist_or_block(false, "host-termination-checkpoint");
         record("host", "termination-requested relaunch-required=true");
-        handler.postDelayed(() -> Process.killProcess(Process.myPid()), 250);
+        receipt_writer.execute(() -> {
+            sync_receipt();
+            Process.killProcess(Process.myPid());
+        });
     }
 
     private void confirm_authenticated_session() {
@@ -531,7 +629,14 @@ public final class LongViewActivity extends Activity {
 
     private void persist_or_block(boolean navigation_event, String operation) {
         try {
+            long started = SystemClock.elapsedRealtime();
             persist_task(navigation_event);
+            record(
+                "storage",
+                "operation=" + clean(operation)
+                    + " ui-thread-ms=" + (SystemClock.elapsedRealtime() - started)
+                    + " navigation-event=" + navigation_event
+            );
         } catch (IOException exception) {
             record("storage-error", "operation=" + operation + " class=" + exception.getClass().getSimpleName());
             append_status("durable task write failed; do not trust restart recovery");
@@ -584,31 +689,53 @@ public final class LongViewActivity extends Activity {
             return;
         }
         long elapsed = SystemClock.elapsedRealtime() - started_at;
-        String line = elapsed + "\t" + clean(event) + "\t" + clean(detail) + "\n";
+        String clean_event = clean(event);
+        String clean_detail = clean(detail);
+        String line = elapsed + "\t" + clean_event + "\t" + clean_detail + "\n";
+        receipt_writer.execute(() -> append_receipt_line(line));
+        append_status(elapsed + "ms " + clean_event + " " + clean_detail);
+    }
+
+    private void append_receipt_line(String line) {
         try (FileOutputStream output = new FileOutputStream(receipt_file, true)) {
             output.write(line.getBytes(StandardCharsets.UTF_8));
+        } catch (IOException exception) {
+            runOnUiThread(
+                () -> append_status("receipt write failed: " + exception.getClass().getSimpleName())
+            );
+        }
+    }
+
+    private void sync_receipt() {
+        try (FileOutputStream output = new FileOutputStream(receipt_file, true)) {
             output.getFD().sync();
         } catch (IOException exception) {
-            append_status("receipt write failed: " + exception.getClass().getSimpleName());
-            return;
+            runOnUiThread(
+                () -> append_status("receipt sync failed: " + exception.getClass().getSimpleName())
+            );
         }
-        append_status(elapsed + "ms " + clean(event) + " " + clean(detail));
     }
 
     private void copy_receipt() {
         record("receipt", "copy-request secrets-inspected=not-automated");
-        try {
-            String receipt = new String(
-                java.nio.file.Files.readAllBytes(receipt_file.toPath()),
-                StandardCharsets.UTF_8
-            );
-            ClipboardManager clipboard =
-                (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(ClipData.newPlainText("IB long-view receipt", receipt));
-            append_status("receipt copied; inspect it for unexpected secrets before sharing");
-        } catch (IOException exception) {
-            append_status("receipt copy failed: " + exception.getClass().getSimpleName());
-        }
+        receipt_writer.execute(() -> {
+            try {
+                String receipt = new String(
+                    java.nio.file.Files.readAllBytes(receipt_file.toPath()),
+                    StandardCharsets.UTF_8
+                );
+                runOnUiThread(() -> {
+                    ClipboardManager clipboard =
+                        (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                    clipboard.setPrimaryClip(ClipData.newPlainText("IB long-view receipt", receipt));
+                    append_status("receipt copied; inspect it for unexpected secrets before sharing");
+                });
+            } catch (IOException exception) {
+                runOnUiThread(
+                    () -> append_status("receipt copy failed: " + exception.getClass().getSimpleName())
+                );
+            }
+        });
     }
 
     private void show_fatal_state(String message) {
