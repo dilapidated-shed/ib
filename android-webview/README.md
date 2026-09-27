@@ -29,6 +29,25 @@ renderer priority remains a survival optimization, not the correctness model.
 values, cookies, authorization codes, or heap-canary values.  Inspect the copied
 text for unexpected secrets before sharing it.
 
+## Page-load accounting
+
+Version 0.6.0 records page-load latency without putting receipt `fsync` calls on
+the Android UI thread. Each main-frame load gets a sequence number and monotonic
+times for the request, page start, first committed visible paint, progress
+buckets, and page finish. At commit and finish the page also reports
+`PerformanceNavigationTiming` durations for DNS, connect/TLS, request to first
+byte, response, DOM milestones, protocol, and byte counts. The timing report
+does not include the page URL.
+
+Protected-task persistence is still synchronous. Each durable checkpoint now
+records how many milliseconds it blocked the UI thread, so physical receipts can
+separate IB storage cost from WebView/network time before changing the durability
+policy.
+
+Ordinary diagnostic receipt lines are appended by one background writer without
+a per-line flush. The deliberate **Kill IB host** control queues an explicit
+receipt sync behind prior receipt writes before terminating the process.
+
 ## Issue #59 fixture
 
 This is a deliberately separate Android fixture for issue #59. It is not the
