@@ -39,10 +39,16 @@ buckets, and page finish. At commit and finish the page also reports
 byte, response, DOM milestones, protocol, and byte counts. The timing report
 does not include the page URL.
 
-Protected-task persistence is still synchronous. Each durable checkpoint now
-records how many milliseconds it blocked the UI thread, so physical receipts can
-separate IB storage cost from WebView/network time before changing the durability
-policy.
+Protected-task persistence is still synchronous where it defines restartable
+browser state. Each durable checkpoint records how many milliseconds it blocked
+the UI thread. Main-frame navigation observations caused by redirects are kept
+in memory until the page commits, and heap-canary samples are diagnostic only;
+neither forces a durable write on its own.
+
+The trace separately records time from the user/navigation request to WebView
+navigation start and time from WebView navigation start to the browser callbacks.
+This makes pre-network IB storage delay visible instead of folding it into DNS or
+server time.
 
 Ordinary diagnostic receipt lines are appended by one background writer without
 a per-line flush. The deliberate **Kill IB host** control queues an explicit
