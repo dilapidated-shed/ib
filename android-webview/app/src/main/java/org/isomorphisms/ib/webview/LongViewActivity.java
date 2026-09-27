@@ -65,7 +65,8 @@ public final class LongViewActivity extends Activity {
     private long started_at;
     private long offscreen_started_at;
     private long state_recovery_ms;
-    private long load_requested_at;
+    private long load_trace_started_at;
+    private long webview_navigation_started_at;
     private int load_sequence;
     private int last_progress_bucket = -1;
     private boolean form_dirty;
@@ -303,6 +304,7 @@ public final class LongViewActivity extends Activity {
                         "progress",
                         "sequence=" + load_sequence
                             + " elapsed-ms=" + load_elapsed_ms()
+                            + " webview-elapsed-ms=" + webview_elapsed_ms()
                             + " percent=" + bucket
                     );
                 }
@@ -312,13 +314,15 @@ public final class LongViewActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView loading_view, WebResourceRequest request) {
                 if (request.isForMainFrame() && request.hasGesture()) {
+                    String target = request.getUrl().toString();
+                    begin_load_trace(target, "page-gesture");
                     try {
-                        begin_browser_navigation(request.getUrl().toString(), "page-gesture");
-                        begin_load_trace(request.getUrl().toString(), "page-gesture");
+                        begin_browser_navigation(target, "page-gesture");
                     } catch (IllegalArgumentException exception) {
                         record("navigation", "blocked-unsafe-target");
                         return true;
                     }
+                    mark_webview_navigation_started("webview-allowed");
                 }
                 return false;
             }
@@ -332,6 +336,7 @@ public final class LongViewActivity extends Activity {
                     "load-stage",
                     "sequence=" + load_sequence
                         + " stage=page-started elapsed-ms=" + page_started_elapsed
+                        + " webview-elapsed-ms=" + webview_elapsed_ms()
                         + " target=" + safe_target_identity(url)
                 );
                 observe_neutral_navigation(url);
@@ -346,6 +351,7 @@ public final class LongViewActivity extends Activity {
                     "load-stage",
                     "sequence=" + load_sequence
                         + " stage=commit-visible elapsed-ms=" + commit_visible_elapsed
+                        + " webview-elapsed-ms=" + webview_elapsed_ms()
                         + " " + task_receipt("commit")
                 );
                 persist_or_block(false, "page-commit");
@@ -361,6 +367,7 @@ public final class LongViewActivity extends Activity {
                     "load-stage",
                     "sequence=" + load_sequence
                         + " stage=page-finished elapsed-ms=" + load_elapsed_ms()
+                        + " webview-elapsed-ms=" + webview_elapsed_ms()
                         + " target=" + safe_target_identity(url)
                 );
                 sample_navigation_timing(finished_view, "page-finished");
@@ -380,6 +387,7 @@ public final class LongViewActivity extends Activity {
                         "error",
                         "sequence=" + load_sequence
                             + " elapsed-ms=" + load_elapsed_ms()
+                            + " webview-elapsed-ms=" + webview_elapsed_ms()
                             + " main-frame code=" + error.getErrorCode()
                     );
                 }
@@ -423,9 +431,11 @@ public final class LongViewActivity extends Activity {
 
     private void navigate_to_entered_url() {
         String requested = url_input.getText().toString().trim();
+        begin_load_trace(requested, "address-bar");
         try {
             begin_browser_navigation(requested, "address-bar");
         } catch (IllegalArgumentException exception) {
+            record("load", "sequence=" + load_sequence + " blocked-invalid-target=true");
             append_status(exception.getMessage());
             return;
         }
@@ -433,7 +443,7 @@ public final class LongViewActivity extends Activity {
         if (web_view == null) {
             attach_webview(false);
         }
-        load_url(requested, "address-bar");
+        issue_load_url(requested);
     }
 
     private void begin_browser_navigation(String requested, String source) {
@@ -453,7 +463,11 @@ public final class LongViewActivity extends Activity {
                 DurableNavigation.from_user_url(url),
                 System.currentTimeMillis()
             );
-            persist_or_block(false, "navigation-observation");
+            record(
+                "navigation",
+                "sequence=" + load_sequence
+                    + " observed-in-memory=true durable-at-page-commit=true"
+            );
         } catch (IllegalArgumentException exception) {
             record("navigation", "neutral-target-unavailable");
         }
@@ -479,12 +493,13 @@ public final class LongViewActivity extends Activity {
 
     private void load_url(String url, String reason) {
         begin_load_trace(url, reason);
-        web_view.loadUrl(url);
+        issue_load_url(url);
     }
 
     private void begin_load_trace(String url, String reason) {
         load_sequence += 1;
-        load_requested_at = SystemClock.elapsedRealtime();
+        load_trace_started_at = SystemClock.elapsedRealtime();
+        webview_navigation_started_at = 0;
         last_progress_bucket = -1;
         record(
             "load",
@@ -495,11 +510,34 @@ public final class LongViewActivity extends Activity {
         );
     }
 
+    private void issue_load_url(String url) {
+        mark_webview_navigation_started("loadUrl");
+        web_view.loadUrl(url);
+    }
+
+    private void mark_webview_navigation_started(String mode) {
+        webview_navigation_started_at = SystemClock.elapsedRealtime();
+        record(
+            "load",
+            "sequence=" + load_sequence
+                + " stage=webview-navigation-started"
+                + " elapsed-ms=" + load_elapsed_ms()
+                + " mode=" + clean(mode)
+        );
+    }
+
     private long load_elapsed_ms() {
-        if (load_requested_at == 0) {
+        if (load_trace_started_at == 0) {
             return -1;
         }
-        return SystemClock.elapsedRealtime() - load_requested_at;
+        return SystemClock.elapsedRealtime() - load_trace_started_at;
+    }
+
+    private long webview_elapsed_ms() {
+        if (webview_navigation_started_at == 0) {
+            return -1;
+        }
+        return SystemClock.elapsedRealtime() - webview_navigation_started_at;
     }
 
     private void sample_navigation_timing(WebView view, String reason) {
@@ -607,7 +645,12 @@ public final class LongViewActivity extends Activity {
                 task = task.observe_heap(false, System.currentTimeMillis());
                 heap_observation = "recreated";
             }
-            persist_or_block(false, "heap-observation");
+            record(
+                "heap",
+                "reason=" + clean(reason)
+                    + " observation=" + heap_observation
+                    + " durable-write=false"
+            );
             sample_page_counts(reason, heap_observation);
         });
     }
