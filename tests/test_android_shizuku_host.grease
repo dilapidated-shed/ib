@@ -90,6 +90,17 @@ package_pids=$(ib_shizuku_package_pids org.isomorphisms.ib)
 test "$package_pids" = '4242 4243'
 ib_shizuku_force_stop_package org.isomorphisms.ib
 
+
+for special_pid in 0 1; do
+  before=$(wc -l < "$fake_log")
+  if ib_shizuku_signal "$special_pid" TERM >/dev/null 2>&1; then
+    printf 'special pid %s was accepted\n' "$special_pid" >&2
+    exit 1
+  fi
+  after=$(wc -l < "$fake_log")
+  test "$before" -eq "$after"
+done
+
 before=$(wc -l < "$fake_log")
 if ib_shizuku_signal '123;echo-bad' TERM >/dev/null 2>&1; then
   printf 'unsafe pid was accepted\n' >&2
