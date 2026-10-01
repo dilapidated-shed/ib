@@ -1,6 +1,7 @@
 package org.isomorphisms.ib.webview;
 
 import android.content.Context;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Process;
 import android.os.StatFs;
@@ -18,6 +19,31 @@ final class AppStorageCapabilities {
         line(output, "schema", "ib-app-storage-capabilities-v1", "", "", "");
         field(output, "app_uid", "measured", "android-app", Integer.toString(Process.myUid()));
         field(output, "package", "reported", "android-app", context.getPackageName());
+        field(output, "source_head", "reported", "android-app", BuildConfig.IB_SOURCE_HEAD);
+        field(
+            output,
+            "apk_version",
+            "reported",
+            "android-app",
+            BuildConfig.VERSION_NAME + ":" + BuildConfig.VERSION_CODE
+        );
+        field(output, "product_model", "reported", "android-app", Build.MODEL);
+        field(output, "build_fingerprint", "reported", "android-app", Build.FINGERPRINT);
+        field(output, "android_release", "reported", "android-app", Build.VERSION.RELEASE);
+        field(
+            output,
+            "android_sdk",
+            "reported",
+            "android-app",
+            Integer.toString(Build.VERSION.SDK_INT)
+        );
+        field(
+            output,
+            "supported_abis",
+            "reported",
+            "android-app",
+            String.join(",", Build.SUPPORTED_ABIS)
+        );
 
         File internal = context.getFilesDir();
         root(
