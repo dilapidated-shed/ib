@@ -91,11 +91,13 @@ export IB_RISH_COMMAND=$fake
 export FAKE_RISH_LOG=$log
 export HOME=$home
 export CATFOOD_STATE_HOME=$state
+export IB_CAPABILITY_SOURCE_HEAD=test-capability-head
 
 export IB_DEVICE_LABEL=phone-with-sd
 export FAKE_CAP_SCENARIO=with-sd
 report_a=$(ib_android_capabilities_report)
 printf '%s\n' "$report_a" | grep -F 'schema	ib-android-capabilities-v1' >/dev/null
+printf '%s\n' "$report_a" | grep -F 'field	source_head	reported	local-checkout	test-capability-head' >/dev/null
 printf '%s\n' "$report_a" | grep -F 'field	device_label	reported	local-config	phone-with-sd' >/dev/null
 printf '%s\n' "$report_a" | grep -F 'field	catfood_shizuku_snapshot	reported	catfood	snap-a' >/dev/null
 printf '%s\n' "$report_a" | grep -F 'field	catfood_source_dir	reported	catfood	/data/data/com.termux/files/home/opt' >/dev/null
