@@ -65,6 +65,17 @@ export IB_RISH_COMMAND="$fake_rish"
 output=$(ib_shizuku_run '__success__')
 test "$output" = 'ok'
 
+bounded_output=$(ib_shizuku_run_bounded 5 '__success__')
+test "$bounded_output" = 'ok'
+
+before=$(wc -l < "$fake_log")
+if ib_shizuku_run_bounded 0 '__success__' >/dev/null 2>&1; then
+  printf 'zero-second timeout was accepted\n' >&2
+  exit 1
+fi
+after=$(wc -l < "$fake_log")
+test "$before" -eq "$after"
+
 if ib_shizuku_run '__failure__' >"$work_directory/failure.out" 2>"$work_directory/failure.err"; then
   printf 'remote failure was reported as success\n' >&2
   exit 1
