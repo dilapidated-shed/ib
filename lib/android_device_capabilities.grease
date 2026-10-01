@@ -199,6 +199,11 @@ ib_android_capabilities_open_app_report() {
 
 ib_android_capabilities_report() {
   printf 'schema\tib-android-capabilities-v1\n'
+  if test -n "${IB_CAPABILITY_SOURCE_HEAD:-}"; then
+    ib_capabilities_emit field source_head reported local-checkout "$IB_CAPABILITY_SOURCE_HEAD"
+  else
+    ib_capabilities_emit field source_head unknown local-checkout unavailable
+  fi
   ib_capabilities_catfood_state
 
   if test "${IB_SIMULATE_APPENDFAT:-0}" = 1; then
