@@ -49,6 +49,8 @@ observed separately.
 
 ## One bounded Shizuku snapshot
 
+The shell report first records the current IB checkout head when Git can resolve it. The APK report independently records its embedded `IB_SOURCE_HEAD`, package version, build fingerprint and Android build identity, so physical receipts can be matched to the exact artifact rather than only to a phone model.
+
 The Android observations are collected in one trusted static `rish -c` command,
 not one shell process per field. It records:
 
