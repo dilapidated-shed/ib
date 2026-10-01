@@ -77,10 +77,29 @@ capacity pools. The first report therefore does not add them together. It emits
 `capacity_pool_relationship=unknown` until backing relationships are established
 by evidence.
 
-Likewise, shell visibility is not application write authority. The report emits
-`ib_app_writer_access=unknown` until an app-side IB probe verifies the exact
-approved root. A large removable volume must never cause Longview to silently
-fall back to internal storage or assume that the app can publish there.
+Likewise, shell visibility is not application write authority. The shell report
+therefore emits `ib_app_writer_access=unknown`.
+
+The APK has a separate read-only app-UID observation at
+`DeviceCapabilitiesActivity`. It enumerates `getFilesDir()` and
+`getExternalFilesDirs(null)`, records Android's external-storage state,
+removable/emulated flags, the app-visible volume UUID when available,
+`File.canWrite()`, and long-valued `StatFs` total/available byte counts. A
+mounted removable app-specific external root may be reported as the app-side
+bulk candidate.
+
+Launch that view through Shizuku without starting the heavy Longview WebView:
+
+```sh
+sh rish -c 'am start -n org.isomorphisms.ib.webview/.DeviceCapabilitiesActivity'
+```
+
+The report is visible and copyable on the phone. It performs no test write.
+`canWrite()` plus a framework-approved app root is therefore **reported writer
+evidence**, not the measured small-write acceptance required by #96.
+
+A large removable volume must never cause Longview to silently fall back to
+internal storage or assume that some other public path is writable.
 
 Disk and RAM remain separate. A large SD card does not authorize a large decoded
 image, JavaScript heap, or other RAM working set.
@@ -107,7 +126,10 @@ It also checks Cat Food snapshot ingestion, a >4 GiB capacity, explicit
 appendfat simulation, unknown app-writer authority, and a lexical read-only
 tripwire over the trusted remote command.
 
-These tests prove the observation contract only. Physical acceptance still must
-run the exact source head against real Shizuku/rish on each phone and preserve
-the raw report as evidence. The next app-side slice must establish the actual IB
-writer roots before #96 uses a volume for admitted writes.
+These tests prove the shell/Cat Food observation contract and source-level
+read-only app adapter boundary. Physical acceptance still must run the exact
+source head against real Shizuku/rish on each phone, copy the app-UID report,
+and preserve both reports as evidence.
+
+#96 must perform the first deliberately bounded write before Longview treats a
+reported root as measured writable storage.
