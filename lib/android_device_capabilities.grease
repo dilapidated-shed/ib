@@ -1,0 +1,238 @@
+# Grease/POSIX-shell source. Read-only Android capability observation for IB.
+# Browser policy consumes these observations; this adapter does not choose storage.
+
+ib_capabilities_emit() {
+  if test "$#" -ne 5; then
+    printf '%s\n' 'ib_capabilities_emit expects KIND NAME STATUS AUTHORITY VALUE' >&2
+    return 2
+  fi
+  kind=$1
+  name=$2
+  status=$3
+  authority=$4
+  value=$5
+  clean_value=$(printf '%s' "$value" | tr '\t\r\n' '   ')
+  printf '%s\t%s\t%s\t%s\t%s\n' "$kind" "$name" "$status" "$authority" "$clean_value"
+}
+
+ib_capabilities_catfood_state() {
+  state_home=${CATFOOD_STATE_HOME:-${XDG_STATE_HOME:-"$HOME/.local/state"}/catfood}
+  state_dir=${CATFOOD_SHIZUKU_STATE_DIR:-"$state_home/shizuku"}
+
+  ib_capabilities_emit field catfood_state_dir reported local "$state_dir"
+
+  if test -n "${IB_DEVICE_LABEL:-}"; then
+    ib_capabilities_emit field device_label reported local-config "$IB_DEVICE_LABEL"
+  else
+    ib_capabilities_emit field device_label unknown catfood 'no device label supplied by current Cat Food contract'
+  fi
+
+  # Cat Food #65 is still the place for a general per-device/local-checkout
+  # manifest. Do not fabricate one from a directory name.
+  ib_capabilities_emit field catfood_device_manifest unknown catfood 'general per-device manifest not available to this adapter'
+
+  if ! test -f "$state_dir/current"; then
+    ib_capabilities_emit field catfood_shizuku_snapshot unknown catfood 'no preserved Shizuku snapshot recorded'
+    return 0
+  fi
+
+  snapshot_id=$(cat "$state_dir/current" 2>/dev/null || true)
+  case "$snapshot_id" in
+    ''|*/*|*..*)
+      ib_capabilities_emit field catfood_shizuku_snapshot invalid catfood "$snapshot_id"
+      return 0
+      ;;
+  esac
+
+  snapshot=$state_dir/snapshots/$snapshot_id
+  receipt=$snapshot/receipt.tsv
+  if ! test -f "$receipt"; then
+    ib_capabilities_emit field catfood_shizuku_snapshot stale catfood "$snapshot_id receipt-missing"
+    return 0
+  fi
+
+  ib_capabilities_emit field catfood_shizuku_snapshot reported catfood "$snapshot_id"
+  tab=$(printf '\t')
+  while IFS="$tab" read -r key value rest; do
+    test -z "${rest:-}" || value="$value $rest"
+    case "$key" in
+      manager_package|source_dir|rish_sha256|dex_sha256|schema|scope)
+        ib_capabilities_emit field "catfood_$key" reported catfood "$value"
+        ;;
+    esac
+  done < "$receipt"
+}
+
+ib_android_capabilities_remote_snapshot() {
+  # One rish process collects the read-only Android view. This is deliberately
+  # static trusted command text: page/user/model strings are never interpolated.
+  remote_script=$(cat <<'IB_CAPABILITIES_REMOTE'
+# IB_CAPABILITIES_REMOTE_V1
+one_line() { tr "\t\r\n" "   "; }
+emit() {
+  kind=$1; name=$2; status=$3; authority=$4; value=$5
+  value=$(printf "%s" "$value" | one_line)
+  printf "%s\t%s\t%s\t%s\t%s\n" "$kind" "$name" "$status" "$authority" "$value"
+}
+probe() {
+  name=$1; shift
+  output=$("$@" 2>&1); code=$?
+  if test "$code" -eq 0 && test -n "$output"; then
+    emit field "$name" reported shizuku-shell "$output"
+  elif test "$code" -eq 0; then
+    emit field "$name" unknown shizuku-shell empty
+  else
+    emit field "$name" unknown shizuku-shell "exit=$code $output"
+  fi
+}
+probe remote_uid id -u
+probe identity id
+probe selinux_context id -Z
+probe product_model getprop ro.product.model
+probe build_fingerprint getprop ro.build.fingerprint
+probe android_release getprop ro.build.version.release
+probe android_sdk getprop ro.build.version.sdk
+probe abi_list getprop ro.product.cpu.abilist
+probe abi_list_32 getprop ro.product.cpu.abilist32
+probe abi_list_64 getprop ro.product.cpu.abilist64
+df_output=$(df -Pk 2>&1); df_code=$?
+if test "$df_code" -eq 0; then
+  count=0
+  printf "%s\n" "$df_output" | while IFS= read -r line; do
+    emit storage_df row measured shizuku-shell "$line"
+    count=$((count + 1))
+    test "$count" -lt 128 || break
+  done
+else
+  emit storage_df error unknown shizuku-shell "exit=$df_code $df_output"
+fi
+volume_output=$(sm list-volumes all 2>&1); volume_code=$?
+if test "$volume_code" -eq 0; then
+  count=0
+  printf "%s\n" "$volume_output" | while IFS= read -r line; do
+    emit storage_volume row reported shizuku-shell "$line"
+    count=$((count + 1))
+    test "$count" -lt 64 || break
+  done
+else
+  emit storage_volume error unknown shizuku-shell "exit=$volume_code $volume_output"
+fi
+public_uuid=
+if test "$volume_code" -eq 0; then
+  public_uuid=$(printf "%s\n" "$volume_output" | while IFS=' ' read -r volume_kind volume_state volume_uuid rest; do
+    case "$volume_kind" in
+      public:*)
+        if test "$volume_state" = mounted && test -n "$volume_uuid" && test "$volume_uuid" != null; then
+          printf "%s\n" "$volume_uuid"
+          break
+        fi
+        ;;
+    esac
+  done)
+fi
+if test -n "$public_uuid"; then
+  public_mount=/storage/$public_uuid
+  public_df=$(printf "%s\n" "$df_output" | awk -v wanted="$public_mount" '$NF == wanted { print; exit }' 2>/dev/null)
+  emit field storage_profile measured shizuku-shell mounted-public-volume-observed
+  emit field bulk_candidate_mount measured shizuku-shell "$public_mount"
+  if test -n "$public_df"; then
+    set -- $public_df
+    emit field bulk_candidate_total_kib measured shizuku-shell "${2:-unknown}"
+    emit field bulk_candidate_available_kib measured shizuku-shell "${4:-unknown}"
+  else
+    emit field bulk_candidate_capacity unknown shizuku-shell "df-row-not-found $public_mount"
+  fi
+else
+  emit field storage_profile measured shizuku-shell no-mounted-public-volume-observed
+  emit field bulk_candidate_mount unknown shizuku-shell none
+fi
+emit field ib_app_writer_access unknown android-app "requires app-side probe; shell-visible mount is not proof of app write access"
+mount_output=$(mount 2>&1); mount_code=$?
+if test "$mount_code" -eq 0; then
+  count=0
+  printf "%s\n" "$mount_output" | while IFS= read -r line; do
+    case "$line" in
+      *" /data "*|*" /storage/"*|*" /mnt/media_rw/"*)
+        emit storage_mount row reported shizuku-shell "$line"
+        count=$((count + 1))
+        test "$count" -lt 128 || break
+        ;;
+    esac
+  done
+else
+  emit storage_mount error unknown shizuku-shell "exit=$mount_code $mount_output"
+fi
+if test -r /proc/meminfo; then
+  count=0
+  while IFS= read -r line; do
+    case "$line" in
+      MemTotal:*|MemAvailable:*|SwapTotal:*|SwapFree:*|Zram:*)
+        emit memory row measured shizuku-shell "$line"
+        count=$((count + 1))
+        test "$count" -lt 16 || break
+        ;;
+    esac
+  done < /proc/meminfo
+else
+  emit memory meminfo denied shizuku-shell unreadable
+fi
+if test -r /proc/pressure/memory; then
+  pressure=$(cat /proc/pressure/memory 2>&1)
+  emit memory pressure reported shizuku-shell "$pressure"
+else
+  emit memory pressure unknown shizuku-shell unavailable
+fi
+if printf "%s\n" "$mount_output" | grep -i appendfat >/dev/null 2>&1; then
+  emit field appendfat_status measured shizuku-shell installed-observed
+else
+  emit field appendfat_status unknown shizuku-shell not-observed
+fi
+emit field capacity_pool_relationship unknown shizuku-shell "df filesystems and Android volumes are observations, not proof of physical backing equivalence"
+IB_CAPABILITIES_REMOTE
+)
+  ib_shizuku_run "$remote_script"
+}
+
+ib_android_capabilities_report() {
+  printf 'schema\tib-android-capabilities-v1\n'
+  ib_capabilities_catfood_state
+
+  if test "${IB_SIMULATE_APPENDFAT:-0}" = 1; then
+    ib_capabilities_emit field appendfat_simulation simulated local enabled
+  else
+    ib_capabilities_emit field appendfat_simulation reported local disabled
+  fi
+
+  if remote_output=$(ib_android_capabilities_remote_snapshot 2>&1); then
+    printf '%s\n' "$remote_output"
+  else
+    status=$?
+    ib_capabilities_emit field shizuku_snapshot failed local "exit=$status $remote_output"
+    return "$status"
+  fi
+}
+
+ib_android_capabilities_summary() {
+  tab=$(printf '\t')
+  while IFS="$tab" read -r kind name status authority value; do
+    case "$kind:$name" in
+      schema:*) printf 'schema: %s\n' "$name" ;;
+      field:device_label) printf 'device label: %s (%s, %s)\n' "$value" "$status" "$authority" ;;
+      field:product_model) printf 'model: %s\n' "$value" ;;
+      field:android_release) printf 'Android: %s\n' "$value" ;;
+      field:android_sdk) printf 'SDK: %s\n' "$value" ;;
+      field:remote_uid) printf 'Shizuku UID: %s\n' "$value" ;;
+      field:catfood_shizuku_snapshot) printf 'Cat Food Shizuku snapshot: %s (%s)\n' "$value" "$status" ;;
+      field:storage_profile) printf 'storage profile: %s (%s)\n' "$value" "$status" ;;
+      field:bulk_candidate_mount) printf 'bulk candidate: %s (%s)\n' "$value" "$status" ;;
+      field:bulk_candidate_total_kib) printf 'bulk total KiB: %s\n' "$value" ;;
+      field:bulk_candidate_available_kib) printf 'bulk available KiB: %s\n' "$value" ;;
+      field:ib_app_writer_access) printf 'IB app writer access: %s (%s)\n' "$value" "$status" ;;
+      field:appendfat_status) printf 'appendfat observed: %s (%s)\n' "$value" "$status" ;;
+      field:capacity_pool_relationship) printf 'capacity-pool relation: %s\n' "$value" ;;
+      storage_df:row) printf 'storage: %s\n' "$value" ;;
+      storage_volume:row) printf 'Android volume: %s\n' "$value" ;;
+      memory:row) printf 'memory: %s\n' "$value" ;;
+    esac
+  done
+}
