@@ -103,6 +103,27 @@ tasks.register("verifyWebViewBoundary") {
             "The acceptance app must not back up fixture state."
         }
 
+        val capabilities = file(
+            "src/main/java/org/isomorphisms/ib/webview/AppStorageCapabilities.java"
+        ).readText()
+        check(implementation.contains("android:name=\\".DeviceCapabilitiesActivity\\"")) {
+            "The app-UID capability report must have a directly launchable Android adapter."
+        }
+        check(capabilities.contains("getExternalFilesDirs")) {
+            "The app-side report must observe Android-approved external app roots."
+        }
+        check(capabilities.contains("isExternalStorageRemovable")) {
+            "The app-side report must distinguish removable storage."
+        }
+        check(capabilities.contains("StatFs") && capabilities.contains("getAvailableBytes")) {
+            "The app-side report must use wide Android capacity observations."
+        }
+        check(!capabilities.contains("FileOutputStream")
+            && !capabilities.contains("createNewFile")
+            && !capabilities.contains("mkdir")) {
+            "The #95 app-side capability report must remain read-only."
+        }
+
         val apks = fileTree("build/outputs/apk/debug") { include("*.apk") }.files
         check(apks.size == 1) { "Expected exactly one debug APK, found ${apks.size}." }
     }
