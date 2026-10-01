@@ -1,0 +1,98 @@
+# Grease source. Android privilege acquisition belongs to Shizuku; this file
+# adapts its rish shell to IB's operating-system work without making browser
+# semantics depend on Shizuku.
+#
+# ib_shizuku_run accepts trusted IB/Grease command text. It is not a quoting or
+# authorization boundary for arbitrary user-supplied strings.
+
+ib_shizuku_fail() {
+  printf '%s\n' "$*" >&2
+  return 1
+}
+
+ib_shizuku_rish_command() {
+  if test -n "${IB_RISH_COMMAND:-}"; then
+    if ! test -x "$IB_RISH_COMMAND"; then
+      ib_shizuku_fail "rish is not executable: $IB_RISH_COMMAND"
+      return 1
+    fi
+    printf '%s\n' "$IB_RISH_COMMAND"
+    return 0
+  fi
+
+  rish_command=$(command -v rish) || {
+    ib_shizuku_fail 'rish is not available; start Shizuku and put rish on PATH or set IB_RISH_COMMAND'
+    return 1
+  }
+  printf '%s\n' "$rish_command"
+}
+
+ib_shizuku_run() {
+  if test "$#" -ne 1; then
+    ib_shizuku_fail 'ib_shizuku_run expects exactly one trusted command string'
+    return 2
+  fi
+
+  command_text=$1
+  rish_command=$(ib_shizuku_rish_command) || return 1
+
+  # rish passes -c directly to the remote Android shell. Its exit status is the
+  # remote shell/command status and must remain visible to IB.
+  "$rish_command" -c "$command_text"
+}
+
+ib_shizuku_effective_uid() {
+  ib_shizuku_run 'id -u'
+}
+
+ib_shizuku_authority() {
+  uid=$(ib_shizuku_effective_uid) || return 1
+  case "$uid" in
+    0)
+      printf 'root\n'
+      ;;
+    2000)
+      printf 'shell\n'
+      ;;
+    *)
+      printf 'uid:%s\n' "$uid"
+      ;;
+  esac
+}
+
+ib_shizuku_identity() {
+  ib_shizuku_run 'printf "identity\\t"; id; printf "selinux\\t"; id -Z 2>/dev/null || printf "unavailable\\n"'
+}
+
+ib_shizuku_process_snapshot() {
+  # Keep this first process view deliberately close to Android's own shell
+  # surface. Typed process records can be added after physical-device evidence
+  # establishes the stable fields on the target.
+  ib_shizuku_run 'ps -A'
+}
+
+ib_shizuku_signal() {
+  if test "$#" -lt 1 || test "$#" -gt 2; then
+    ib_shizuku_fail 'ib_shizuku_signal expects PID and optional SIGNAL'
+    return 2
+  fi
+
+  pid=$1
+  signal=${2:-TERM}
+
+  case "$pid" in
+    ''|*[!0-9]*)
+      ib_shizuku_fail "invalid pid: $pid"
+      return 2
+      ;;
+  esac
+
+  case "$signal" in
+    ''|*[!A-Za-z0-9]*)
+      ib_shizuku_fail "invalid signal: $signal"
+      return 2
+      ;;
+  esac
+
+  ib_shizuku_run "kill -$signal $pid"
+}
