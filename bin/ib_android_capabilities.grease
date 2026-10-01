@@ -1,0 +1,25 @@
+#!/usr/bin/env grease
+set -eu
+
+case $0 in
+  */*) script_directory=${0%/*} ;;
+  *) script_directory=. ;;
+esac
+repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
+. "$repository_root/lib/android_shizuku_host.grease"
+. "$repository_root/lib/android_device_capabilities.grease"
+
+case ${1:-report} in
+  report)
+    test "$#" -le 1 || exit 2
+    ib_android_capabilities_report
+    ;;
+  summary)
+    test "$#" -le 1 || exit 2
+    ib_android_capabilities_report | ib_android_capabilities_summary
+    ;;
+  *)
+    printf 'usage: %s [report|summary]\n' "$0" >&2
+    exit 2
+    ;;
+esac
