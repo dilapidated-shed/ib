@@ -96,3 +96,43 @@ ib_shizuku_signal() {
 
   ib_shizuku_run "kill -$signal $pid"
 }
+
+ib_shizuku_validate_package_name() {
+  if test "$#" -ne 1; then
+    ib_shizuku_fail 'ib_shizuku_validate_package_name expects one package name'
+    return 2
+  fi
+
+  package_name=$1
+  case "$package_name" in
+    ''|*[!A-Za-z0-9._]*)
+      ib_shizuku_fail "invalid Android package name: $package_name"
+      return 2
+      ;;
+  esac
+}
+
+ib_shizuku_package_pids() {
+  if test "$#" -ne 1; then
+    ib_shizuku_fail 'ib_shizuku_package_pids expects one package name'
+    return 2
+  fi
+
+  package_name=$1
+  ib_shizuku_validate_package_name "$package_name" || return 2
+  ib_shizuku_run "pidof $package_name"
+}
+
+ib_shizuku_force_stop_package() {
+  if test "$#" -ne 1; then
+    ib_shizuku_fail 'ib_shizuku_force_stop_package expects one package name'
+    return 2
+  fi
+
+  package_name=$1
+  ib_shizuku_validate_package_name "$package_name" || return 2
+
+  # am is ActivityManager's shell-facing control tool. Shizuku supplies the
+  # remote shell identity; ActivityManager performs Android's package stop.
+  ib_shizuku_run "am force-stop $package_name"
+}

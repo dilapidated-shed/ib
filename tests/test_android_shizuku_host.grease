@@ -48,6 +48,11 @@ case "$command_text" in
     ;;
   'kill -TERM 123')
     ;;
+  'pidof org.isomorphisms.ib')
+    printf '4242 4243\n'
+    ;;
+  'am force-stop org.isomorphisms.ib')
+    ;;
   *)
     printf 'unexpected remote command: %s\n' "$command_text" >&2
     exit 92
@@ -81,9 +86,21 @@ printf '%s\n' "$processes" | grep -F '2000 sh' >/dev/null
 
 ib_shizuku_signal 123 TERM
 
+package_pids=$(ib_shizuku_package_pids org.isomorphisms.ib)
+test "$package_pids" = '4242 4243'
+ib_shizuku_force_stop_package org.isomorphisms.ib
+
 before=$(wc -l < "$fake_log")
 if ib_shizuku_signal '123;echo-bad' TERM >/dev/null 2>&1; then
   printf 'unsafe pid was accepted\n' >&2
+  exit 1
+fi
+after=$(wc -l < "$fake_log")
+test "$before" -eq "$after"
+
+before=$(wc -l < "$fake_log")
+if ib_shizuku_force_stop_package 'org.isomorphisms.ib;echo-bad' >/dev/null 2>&1; then
+  printf 'unsafe package name was accepted\n' >&2
   exit 1
 fi
 after=$(wc -l < "$fake_log")

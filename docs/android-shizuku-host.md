@@ -43,13 +43,21 @@ about Shizuku.
 - an identity receipt including the remote `id` result and SELinux context
   when Android exposes it;
 - a raw process snapshot through `ps -A`;
-- validated PID/signal forwarding.
+- validated PID/signal forwarding;
+- package PID lookup through `pidof`;
+- deliberate Android package stop through ActivityManager's `am force-stop`.
 
 `bin/ib_android_shizuku.grease` exposes those operations for development.
 
 This is deliberately a small mechanism surface. Browser tasks, tab identity,
 restart policy, durable results, and renderer policy remain owned by the Idriç
 core.
+
+The package-stop operation is immediately useful to the protected long-view
+work: physical acceptance can kill the actual IB package through Shizuku rather
+than requiring an ADB session, then verify that the durable task survives the
+new host generation. The stop mechanism remains distinct from the durable task
+semantics being tested.
 
 ## Why rish first
 

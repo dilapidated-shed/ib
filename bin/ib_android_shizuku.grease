@@ -41,6 +41,20 @@ case "$subcommand" in
     }
     ib_shizuku_process_snapshot
     ;;
+  package-pids)
+    test "$#" -eq 1 || {
+      ib_shizuku_usage
+      exit 2
+    }
+    ib_shizuku_package_pids "$1"
+    ;;
+  force-stop)
+    test "$#" -eq 1 || {
+      ib_shizuku_usage
+      exit 2
+    }
+    ib_shizuku_force_stop_package "$1"
+    ;;
   run)
     test "$#" -eq 1 || {
       ib_shizuku_usage
