@@ -106,7 +106,7 @@ tasks.register("verifyWebViewBoundary") {
         val capabilities = file(
             "src/main/java/org/isomorphisms/ib/webview/AppStorageCapabilities.java"
         ).readText()
-        check(implementation.contains("android:name=\\".DeviceCapabilitiesActivity\\"")) {
+        check(implementation.contains("android:name=\".DeviceCapabilitiesActivity\"")) {
             "The app-UID capability report must have a directly launchable Android adapter."
         }
         check(capabilities.contains("getExternalFilesDirs")) {
