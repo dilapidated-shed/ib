@@ -10,6 +10,11 @@
         android:usesCleartextTraffic="true">
 
         <activity
+            android:name=".DeviceCapabilitiesActivity"
+            android:exported="true"
+            android:label="IB Device Capabilities" />
+
+        <activity
             android:name=".PressureActivity"
             android:exported="false"
             android:process=":pressure" />

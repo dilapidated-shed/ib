@@ -43,6 +43,9 @@ jobs:
       - name: Exercise Android Shizuku host adapter
         run: sh tests/test_android_shizuku_host.grease
 
+      - name: Exercise Android device capability report
+        run: sh tests/test_android_device_capabilities.grease
+
       - name: Checkout canonical hostile-input corpus
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
