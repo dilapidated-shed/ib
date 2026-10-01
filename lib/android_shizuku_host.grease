@@ -41,6 +41,32 @@ ib_shizuku_run() {
   "$rish_command" -c "$command_text"
 }
 
+ib_shizuku_run_bounded() {
+  if test "$#" -ne 2; then
+    ib_shizuku_fail 'ib_shizuku_run_bounded expects SECONDS and one trusted command string'
+    return 2
+  fi
+
+  seconds=$1
+  command_text=$2
+  case "$seconds" in
+    ''|*[!0-9]*|0)
+      ib_shizuku_fail "invalid timeout seconds: $seconds"
+      return 2
+      ;;
+  esac
+
+  timeout_command=$(command -v timeout) || {
+    ib_shizuku_fail 'timeout is not available; refusing an unbounded Shizuku operation'
+    return 1
+  }
+  rish_command=$(ib_shizuku_rish_command) || return 1
+
+  # The caller is bounded even if an Android service stalls. Preserve timeout's
+  # status (normally 124) rather than translating it into success.
+  "$timeout_command" "$seconds" "$rish_command" -c "$command_text"
+}
+
 ib_shizuku_effective_uid() {
   ib_shizuku_run 'id -u'
 }
