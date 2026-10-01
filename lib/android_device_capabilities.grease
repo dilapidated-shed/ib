@@ -193,6 +193,10 @@ IB_CAPABILITIES_REMOTE
   ib_shizuku_run "$remote_script"
 }
 
+ib_android_capabilities_open_app_report() {
+  ib_shizuku_run 'am start -W -n org.isomorphisms.ib.webview/.DeviceCapabilitiesActivity'
+}
+
 ib_android_capabilities_report() {
   printf 'schema\tib-android-capabilities-v1\n'
   ib_capabilities_catfood_state
