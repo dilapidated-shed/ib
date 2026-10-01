@@ -13,6 +13,7 @@ placement on an SD card.
 ```text
 bin/ib_android_capabilities.grease report
 bin/ib_android_capabilities.grease summary
+bin/ib_android_capabilities.grease app
 ```
 
 `report` emits tab-separated machine-readable records. `summary` renders a
@@ -88,11 +89,16 @@ removable/emulated flags, the app-visible volume UUID when available,
 mounted removable app-specific external root may be reported as the app-side
 bulk candidate.
 
-Launch that view through Shizuku without starting the heavy Longview WebView:
+Launch that view through the same Shizuku adapter without starting the heavy
+Longview WebView:
 
 ```sh
-sh rish -c 'am start -n org.isomorphisms.ib.webview/.DeviceCapabilitiesActivity'
+sh bin/ib_android_capabilities.grease app
 ```
+
+The underlying Android operation is the fixed component launch
+`am start -W -n org.isomorphisms.ib.webview/.DeviceCapabilitiesActivity`; no
+page/user/model string is interpolated into the privileged command.
 
 The report is visible and copyable on the phone. It performs no test write.
 `canWrite()` plus a framework-approved app root is therefore **reported writer
