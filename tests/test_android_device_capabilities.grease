@@ -1,0 +1,145 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+. "$root/lib/android_shizuku_host.grease"
+. "$root/lib/android_device_capabilities.grease"
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+home=$tmp/home
+state=$tmp/state
+mkdir -p "$home" "$state/shizuku/snapshots/snap-a"
+printf '%s\n' snap-a > "$state/shizuku/current"
+cat > "$state/shizuku/snapshots/snap-a/receipt.tsv" <<'EOF_RECEIPT'
+schema	catfood-shizuku-state-v1
+scope	rish-bundle
+manager_package	moe.shizuku.privileged.api
+source_dir	/data/data/com.termux/files/home/opt
+rish_sha256	aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+dex_sha256	bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+EOF_RECEIPT
+
+fake=$tmp/rish
+log=$tmp/rish.log
+cat > "$fake" <<'EOF_RISH'
+#!/bin/sh
+set -eu
+test "$#" -eq 2
+test "$1" = -c
+printf '%s\n' "$2" >> "$FAKE_RISH_LOG"
+case $2 in
+  'am start -W -n org.isomorphisms.ib.webview/.DeviceCapabilitiesActivity')
+    printf 'Status: ok\n'
+    ;;
+  *IB_CAPABILITIES_REMOTE_V1*)
+    case ${FAKE_CAP_SCENARIO:-with-sd} in
+      with-sd)
+        cat <<'EOF_DATA'
+field	remote_uid	measured	shizuku-shell	2000
+field	identity	reported	shizuku-shell	uid=2000(shell) gid=2000(shell)
+field	selinux_context	reported	shizuku-shell	u:r:shell:s0
+field	product_model	reported	shizuku-shell	MIRO A1
+field	android_release	reported	shizuku-shell	14
+field	android_sdk	reported	shizuku-shell	34
+field	abi_list_32	reported	shizuku-shell	armeabi-v7a,armeabi
+storage_df	row	measured	shizuku-shell	Filesystem 1024-blocks Used Available Capacity Mounted on
+storage_df	row	measured	shizuku-shell	/dev/block/dm-10 25000000 20000000 5000000 80% /data
+storage_df	row	measured	shizuku-shell	/dev/fuse 25000000 20000000 5000000 80% /storage/emulated
+storage_df	row	measured	shizuku-shell	/dev/block/vold/public:179,65 67108864 1000 67107864 1% /storage/1234-5678
+storage_volume	row	reported	shizuku-shell	emulated;0 mounted null
+storage_volume	row	reported	shizuku-shell	public:179,65 mounted 1234-5678
+field	storage_profile	measured	shizuku-shell	mounted-public-volume-observed
+field	bulk_candidate_mount	measured	shizuku-shell	/storage/1234-5678
+field	bulk_candidate_total_kib	measured	shizuku-shell	67108864
+field	bulk_candidate_available_kib	measured	shizuku-shell	67107864
+field	ib_app_writer_access	unknown	android-app	requires app-side probe; shell-visible mount is not proof of app write access
+memory	row	measured	shizuku-shell	MemTotal:        2031616 kB
+memory	row	measured	shizuku-shell	MemAvailable:     700000 kB
+memory	row	measured	shizuku-shell	SwapTotal:       1484800 kB
+field	appendfat_status	unknown	shizuku-shell	not-observed
+field	capacity_pool_relationship	unknown	shizuku-shell	df filesystems and Android volumes are observations, not proof of physical backing equivalence
+EOF_DATA
+        ;;
+      no-sd)
+        cat <<'EOF_DATA'
+field	remote_uid	measured	shizuku-shell	2000
+field	product_model	reported	shizuku-shell	MIRO A1
+field	android_release	reported	shizuku-shell	14
+field	android_sdk	reported	shizuku-shell	34
+storage_df	row	measured	shizuku-shell	/dev/block/dm-10 25000000 20000000 5000000 80% /data
+storage_df	row	measured	shizuku-shell	/dev/fuse 25000000 20000000 5000000 80% /storage/emulated
+storage_volume	row	reported	shizuku-shell	emulated;0 mounted null
+field	storage_profile	measured	shizuku-shell	no-mounted-public-volume-observed
+field	bulk_candidate_mount	unknown	shizuku-shell	none
+field	ib_app_writer_access	unknown	android-app	requires app-side probe; shell-visible mount is not proof of app write access
+memory	row	measured	shizuku-shell	MemTotal:        2031616 kB
+field	appendfat_status	unknown	shizuku-shell	not-observed
+field	capacity_pool_relationship	unknown	shizuku-shell	unknown
+EOF_DATA
+        ;;
+    esac
+    ;;
+  *)
+    printf 'unexpected command\n' >&2
+    exit 90
+    ;;
+esac
+EOF_RISH
+chmod +x "$fake"
+export IB_RISH_COMMAND=$fake
+export FAKE_RISH_LOG=$log
+export HOME=$home
+export CATFOOD_STATE_HOME=$state
+export IB_CAPABILITY_SOURCE_HEAD=test-capability-head
+
+export IB_DEVICE_LABEL=phone-with-sd
+export FAKE_CAP_SCENARIO=with-sd
+report_a=$(ib_android_capabilities_report)
+printf '%s\n' "$report_a" | grep -F 'schema	ib-android-capabilities-v1' >/dev/null
+printf '%s\n' "$report_a" | grep -F 'field	source_head	reported	local-checkout	test-capability-head' >/dev/null
+printf '%s\n' "$report_a" | grep -F 'field	device_label	reported	local-config	phone-with-sd' >/dev/null
+printf '%s\n' "$report_a" | grep -F 'field	catfood_shizuku_snapshot	reported	catfood	snap-a' >/dev/null
+printf '%s\n' "$report_a" | grep -F 'field	catfood_source_dir	reported	catfood	/data/data/com.termux/files/home/opt' >/dev/null
+printf '%s\n' "$report_a" | grep -F 'field	remote_uid	measured	shizuku-shell	2000' >/dev/null
+printf '%s\n' "$report_a" | grep -F 'field	bulk_candidate_mount	measured	shizuku-shell	/storage/1234-5678' >/dev/null
+printf '%s\n' "$report_a" | grep -F 'field	bulk_candidate_total_kib	measured	shizuku-shell	67108864' >/dev/null
+printf '%s\n' "$report_a" | grep -F 'MemTotal:' >/dev/null
+printf '%s\n' "$report_a" | grep -F 'field	appendfat_status	unknown	shizuku-shell	not-observed' >/dev/null
+printf '%s\n' "$report_a" | grep -F 'field	capacity_pool_relationship	unknown' >/dev/null
+printf '%s\n' "$report_a" | grep -F 'field	ib_app_writer_access	unknown	android-app' >/dev/null
+
+export IB_DEVICE_LABEL=phone-no-sd
+export FAKE_CAP_SCENARIO=no-sd
+report_b=$(ib_android_capabilities_report)
+printf '%s\n' "$report_b" | grep -F 'phone-no-sd' >/dev/null
+if printf '%s\n' "$report_b" | grep -F '/storage/1234-5678' >/dev/null; then
+  printf '%s\n' 'no-SD fixture unexpectedly reported removable storage' >&2
+  exit 1
+fi
+
+export IB_SIMULATE_APPENDFAT=1
+report_sim=$(ib_android_capabilities_report)
+printf '%s\n' "$report_sim" | grep -F 'field	appendfat_simulation	simulated	local	enabled' >/dev/null
+printf '%s\n' "$report_sim" | grep -F 'field	appendfat_status	unknown	shizuku-shell	not-observed' >/dev/null
+unset IB_SIMULATE_APPENDFAT
+
+app_launch=$(ib_android_capabilities_open_app_report)
+printf '%s\n' "$app_launch" | grep -F 'Status: ok' >/dev/null
+
+# Report-only remote command must remain read-only. This is intentionally a
+# lexical tripwire in addition to review of the static remote command.
+if grep -E '(^|[ ;])(touch|mkdir|rm|mv|cp|dd|truncate|fallocate|mkfs)([ ;]|$)' "$log" >/dev/null; then
+  printf '%s\n' 'capability report attempted a mutating remote command' >&2
+  exit 1
+fi
+
+summary=$(printf '%s\n' "$report_a" | ib_android_capabilities_summary)
+printf '%s\n' "$summary" | grep -F 'device label: phone-with-sd' >/dev/null
+printf '%s\n' "$summary" | grep -F 'storage: /dev/block/vold/public:179,65' >/dev/null
+printf '%s\n' "$summary" | grep -F 'bulk candidate: /storage/1234-5678' >/dev/null
+printf '%s\n' "$summary" | grep -F 'bulk available KiB: 67107864' >/dev/null
+printf '%s\n' "$summary" | grep -F 'IB app writer access: requires app-side probe' >/dev/null
+printf '%s\n' "$summary" | grep -F 'memory: MemTotal:' >/dev/null
+
+printf '%s\n' 'android device capability report tests: ok'

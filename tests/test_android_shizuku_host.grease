@@ -1,0 +1,131 @@
+#!/usr/bin/env grease
+set -eu
+
+case $0 in
+  */*) script_directory=${0%/*} ;;
+  *) script_directory=. ;;
+esac
+repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
+. "$repository_root/lib/android_shizuku_host.grease"
+
+work_directory=$(mktemp -d)
+cleanup() {
+  rm -rf "$work_directory"
+}
+trap cleanup EXIT HUP INT TERM
+
+fake_rish="$work_directory/rish"
+fake_log="$work_directory/rish.log"
+export FAKE_RISH_LOG="$fake_log"
+
+cat > "$fake_rish" <<'FAKE_RISH'
+#!/bin/sh
+if test "$#" -ne 2 || test "$1" != '-c'; then
+  printf 'fake rish expected: -c COMMAND\n' >&2
+  exit 91
+fi
+
+command_text=$2
+printf '%s\n' "$command_text" >> "$FAKE_RISH_LOG"
+
+case "$command_text" in
+  __success__)
+    printf 'ok\n'
+    ;;
+  __failure__)
+    printf 'remote failure\n' >&2
+    exit 37
+    ;;
+  'id -u')
+    printf '2000\n'
+    ;;
+  'printf "identity\\t"; id; printf "selinux\\t"; id -Z 2>/dev/null || printf "unavailable\\n"')
+    printf 'identity\tuid=2000(shell) gid=2000(shell) groups=2000(shell)\n'
+    printf 'selinux\tu:r:shell:s0\n'
+    ;;
+  'ps -A')
+    printf 'PID NAME\n2000 sh\n'
+    ;;
+  'kill -TERM 123')
+    ;;
+  'pidof org.isomorphisms.ib')
+    printf '4242 4243\n'
+    ;;
+  'am force-stop org.isomorphisms.ib')
+    ;;
+  *)
+    printf 'unexpected remote command: %s\n' "$command_text" >&2
+    exit 92
+    ;;
+esac
+FAKE_RISH
+chmod +x "$fake_rish"
+export IB_RISH_COMMAND="$fake_rish"
+
+output=$(ib_shizuku_run '__success__')
+test "$output" = 'ok'
+
+bounded_output=$(ib_shizuku_run_bounded 5 '__success__')
+test "$bounded_output" = 'ok'
+
+before=$(wc -l < "$fake_log")
+if ib_shizuku_run_bounded 0 '__success__' >/dev/null 2>&1; then
+  printf 'zero-second timeout was accepted\n' >&2
+  exit 1
+fi
+after=$(wc -l < "$fake_log")
+test "$before" -eq "$after"
+
+if ib_shizuku_run '__failure__' >"$work_directory/failure.out" 2>"$work_directory/failure.err"; then
+  printf 'remote failure was reported as success\n' >&2
+  exit 1
+else
+  status=$?
+fi
+test "$status" -eq 37
+grep -F 'remote failure' "$work_directory/failure.err" >/dev/null
+
+test "$(ib_shizuku_authority)" = 'shell'
+
+identity=$(ib_shizuku_identity)
+printf '%s\n' "$identity" | grep -F 'identity' >/dev/null
+printf '%s\n' "$identity" | grep -F 'uid=2000(shell)' >/dev/null
+printf '%s\n' "$identity" | grep -F 'u:r:shell:s0' >/dev/null
+
+processes=$(ib_shizuku_process_snapshot)
+printf '%s\n' "$processes" | grep -F '2000 sh' >/dev/null
+
+ib_shizuku_signal 123 TERM
+
+package_pids=$(ib_shizuku_package_pids org.isomorphisms.ib)
+test "$package_pids" = '4242 4243'
+ib_shizuku_force_stop_package org.isomorphisms.ib
+
+
+for special_pid in 0 1; do
+  before=$(wc -l < "$fake_log")
+  if ib_shizuku_signal "$special_pid" TERM >/dev/null 2>&1; then
+    printf 'special pid %s was accepted\n' "$special_pid" >&2
+    exit 1
+  fi
+  after=$(wc -l < "$fake_log")
+  test "$before" -eq "$after"
+done
+
+before=$(wc -l < "$fake_log")
+if ib_shizuku_signal '123;echo-bad' TERM >/dev/null 2>&1; then
+  printf 'unsafe pid was accepted\n' >&2
+  exit 1
+fi
+after=$(wc -l < "$fake_log")
+test "$before" -eq "$after"
+
+before=$(wc -l < "$fake_log")
+if ib_shizuku_force_stop_package 'org.isomorphisms.ib;echo-bad' >/dev/null 2>&1; then
+  printf 'unsafe package name was accepted\n' >&2
+  exit 1
+fi
+after=$(wc -l < "$fake_log")
+test "$before" -eq "$after"
+
+printf 'android shizuku host adapter tests: ok\n'

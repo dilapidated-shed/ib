@@ -1,0 +1,79 @@
+#!/usr/bin/env grease
+set -eu
+
+case $0 in
+  */*) script_directory=${0%/*} ;;
+  *) script_directory=. ;;
+esac
+repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
+. "$repository_root/lib/android_shizuku_host.grease"
+
+ib_shizuku_usage() {
+  printf 'usage: %s authority|identity|processes|run COMMAND|signal PID [SIGNAL]\n' "$0" >&2
+}
+
+subcommand=${1:-}
+if test -z "$subcommand"; then
+  ib_shizuku_usage
+  exit 2
+fi
+shift
+
+case "$subcommand" in
+  authority)
+    test "$#" -eq 0 || {
+      ib_shizuku_usage
+      exit 2
+    }
+    ib_shizuku_authority
+    ;;
+  identity)
+    test "$#" -eq 0 || {
+      ib_shizuku_usage
+      exit 2
+    }
+    ib_shizuku_identity
+    ;;
+  processes)
+    test "$#" -eq 0 || {
+      ib_shizuku_usage
+      exit 2
+    }
+    ib_shizuku_process_snapshot
+    ;;
+  package-pids)
+    test "$#" -eq 1 || {
+      ib_shizuku_usage
+      exit 2
+    }
+    ib_shizuku_package_pids "$1"
+    ;;
+  force-stop)
+    test "$#" -eq 1 || {
+      ib_shizuku_usage
+      exit 2
+    }
+    ib_shizuku_force_stop_package "$1"
+    ;;
+  run)
+    test "$#" -eq 1 || {
+      ib_shizuku_usage
+      exit 2
+    }
+    ib_shizuku_run "$1"
+    ;;
+  signal)
+    if test "$#" -eq 1; then
+      ib_shizuku_signal "$1"
+    elif test "$#" -eq 2; then
+      ib_shizuku_signal "$1" "$2"
+    else
+      ib_shizuku_usage
+      exit 2
+    fi
+    ;;
+  *)
+    ib_shizuku_usage
+    exit 2
+    ;;
+esac
