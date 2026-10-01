@@ -18,8 +18,12 @@ case ${1:-report} in
     test "$#" -le 1 || exit 2
     ib_android_capabilities_report | ib_android_capabilities_summary
     ;;
+  app)
+    test "$#" -le 1 || exit 2
+    ib_android_capabilities_open_app_report
+    ;;
   *)
-    printf 'usage: %s [report|summary]\n' "$0" >&2
+    printf 'usage: %s [report|summary|app]\n' "$0" >&2
     exit 2
     ;;
 esac
