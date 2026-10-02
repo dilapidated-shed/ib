@@ -62,11 +62,18 @@ case "$subcommand" in
     }
     ib_shizuku_run "$1"
     ;;
-  signal)
-    if test "$#" -eq 1; then
-      ib_shizuku_signal "$1"
-    elif test "$#" -eq 2; then
-      ib_shizuku_signal "$1" "$2"
+  process-identity)
+    test "$#" -eq 1 || {
+      ib_shizuku_usage
+      exit 2
+    }
+    ib_shizuku_process_identity "$1"
+    ;;
+  signal-owned)
+    if test "$#" -eq 3; then
+      ib_shizuku_signal_owned "$1" "$2" "$3"
+    elif test "$#" -eq 4; then
+      ib_shizuku_signal_owned "$1" "$2" "$3" "$4"
     else
       ib_shizuku_usage
       exit 2
