@@ -39,14 +39,20 @@ case "$command_text" in
   'id -u')
     printf '2000\n'
     ;;
-  'printf "identity\\t"; id; printf "selinux\\t"; id -Z 2>/dev/null || printf "unavailable\\n"')
+  'printf "identity\t"; id; printf "selinux\t"; id -Z 2>/dev/null || printf "unavailable\n"')
     printf 'identity\tuid=2000(shell) gid=2000(shell) groups=2000(shell)\n'
     printf 'selinux\tu:r:shell:s0\n'
     ;;
   'ps -A')
     printf 'PID NAME\n2000 sh\n'
     ;;
-  'kill -TERM 123')
+  *'expected_start=999'*'expected_name=ibworker'*'kill -TERM'*)
+    ;;
+  *'expected_start=998'*'expected_name=ibworker'*)
+    exit 45
+    ;;
+  *'pid=123;'*'/proc/$pid/stat;'*'/proc/$pid/comm;'*)
+    printf '123\t999\tibworker\n'
     ;;
   'pidof org.isomorphisms.ib')
     printf '4242 4243\n'
@@ -95,16 +101,45 @@ printf '%s\n' "$identity" | grep -F 'u:r:shell:s0' >/dev/null
 processes=$(ib_shizuku_process_snapshot)
 printf '%s\n' "$processes" | grep -F '2000 sh' >/dev/null
 
-ib_shizuku_signal 123 TERM
+process_identity=$(ib_shizuku_process_identity 123)
+test "$process_identity" = "$(printf '123\t999\tibworker')"
+
+ib_shizuku_signal_owned 123 999 ibworker TERM
+
+if ib_shizuku_signal_owned 123 998 ibworker TERM     >"$work_directory/stale.out" 2>"$work_directory/stale.err"; then
+  printf 'stale process start identity was accepted\n' >&2
+  exit 1
+else
+  status=$?
+fi
+test "$status" -eq 45
+
+before=$(wc -l < "$fake_log")
+if ib_shizuku_signal 123 TERM >/dev/null 2>&1; then
+  printf 'PID-only signal was accepted\n' >&2
+  exit 1
+fi
+after=$(wc -l < "$fake_log")
+test "$before" -eq "$after"
 
 package_pids=$(ib_shizuku_package_pids org.isomorphisms.ib)
 test "$package_pids" = '4242 4243'
-ib_shizuku_force_stop_package org.isomorphisms.ib
 
+before=$(wc -l < "$fake_log")
+if ib_shizuku_force_stop_package org.isomorphisms.ib >/dev/null 2>&1; then
+  printf 'package stop ran without explicit fault target\n' >&2
+  exit 1
+fi
+after=$(wc -l < "$fake_log")
+test "$before" -eq "$after"
+
+export IB_SHIZUKU_FAULT_TARGET_PACKAGE=org.isomorphisms.ib
+ib_shizuku_force_stop_package org.isomorphisms.ib
+unset IB_SHIZUKU_FAULT_TARGET_PACKAGE
 
 for special_pid in 0 1; do
   before=$(wc -l < "$fake_log")
-  if ib_shizuku_signal "$special_pid" TERM >/dev/null 2>&1; then
+  if ib_shizuku_signal_owned "$special_pid" 999 ibworker TERM >/dev/null 2>&1; then
     printf 'special pid %s was accepted\n' "$special_pid" >&2
     exit 1
   fi
@@ -113,8 +148,24 @@ for special_pid in 0 1; do
 done
 
 before=$(wc -l < "$fake_log")
-if ib_shizuku_signal '123;echo-bad' TERM >/dev/null 2>&1; then
+if ib_shizuku_signal_owned '123;echo-bad' 999 ibworker TERM >/dev/null 2>&1; then
   printf 'unsafe pid was accepted\n' >&2
+  exit 1
+fi
+after=$(wc -l < "$fake_log")
+test "$before" -eq "$after"
+
+before=$(wc -l < "$fake_log")
+if ib_shizuku_signal_owned 123 '999;echo-bad' ibworker TERM >/dev/null 2>&1; then
+  printf 'unsafe start identity was accepted\n' >&2
+  exit 1
+fi
+after=$(wc -l < "$fake_log")
+test "$before" -eq "$after"
+
+before=$(wc -l < "$fake_log")
+if ib_shizuku_signal_owned 123 999 'ibworker;echo-bad' TERM >/dev/null 2>&1; then
+  printf 'unsafe process name was accepted\n' >&2
   exit 1
 fi
 after=$(wc -l < "$fake_log")
