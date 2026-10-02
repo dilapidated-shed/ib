@@ -11,14 +11,6 @@ ib_binder_provider() {
   printf '%s\n' 'shizuku'
 }
 
-ib_binder_run() {
-  ib_shizuku_run "$@"
-}
-
-ib_binder_run_bounded() {
-  ib_shizuku_run_bounded "$@"
-}
-
 ib_binder_authority() {
   ib_shizuku_authority "$@"
 }
