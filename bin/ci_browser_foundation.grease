@@ -99,6 +99,16 @@ exercise_core() {
   ./build/exec/ib-occurrence-smoke | tee /tmp/ib-occurrence-smoke.txt
   cmp "$repository_root/tests/fixtures/occurrence-smoke.expected" \
     /tmp/ib-occurrence-smoke.txt
+
+  "$idric_prefix/bin/idris2" PaintBudgetSmoke.idric -o ib-paint-budget-smoke \
+    2>&1 | tee /tmp/idric-paint-budget-compile.txt
+  test -x ./build/exec/ib-paint-budget-smoke
+  ! grep -q '^Error:' /tmp/idric-paint-budget-compile.txt
+  ./build/exec/ib-paint-budget-smoke | tee /tmp/ib-paint-budget-smoke.txt
+  grep -Fx 'paint-budget-cheap-full=True' /tmp/ib-paint-budget-smoke.txt
+  grep -Fx 'paint-budget-expensive-reduced=True' /tmp/ib-paint-budget-smoke.txt
+  grep -Fx 'paint-budget-pathological-reused=True' /tmp/ib-paint-budget-smoke.txt
+  grep -Fx 'paint-budget-pathological-deferred=True' /tmp/ib-paint-budget-smoke.txt
 }
 
 exercise_workbench() {
