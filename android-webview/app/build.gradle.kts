@@ -154,6 +154,22 @@ tasks.register("verifyWebViewBoundary") {
             "The durable result fixture must not use Android cache storage."
         }
 
+        val liveProvider = file(
+            "src/main/java/org/isomorphisms/ib/webview/LiveChannelProvider.java"
+        ).readText()
+        check(liveProvider.contains("createReliableSocketPair")) {
+            "The live-channel fixture must transfer a reliable PFD socket pair."
+        }
+        check(liveProvider.contains("Binder.getCallingUid()")) {
+            "The live-channel receipt must retain Binder caller identity."
+        }
+        check(manifest.contains("org.isomorphisms.ib.webview.live")) {
+            "The live-channel provider authority must be declared."
+        }
+        check(manifest.contains("android:pathPrefix=\"/channel/\"")) {
+            "The live-channel URI grant must be path-bounded."
+        }
+
         val apks = fileTree("build/outputs/apk/debug") { include("*.apk") }.files
         check(apks.size == 1) { "Expected exactly one debug APK, found ${apks.size}." }
     }
