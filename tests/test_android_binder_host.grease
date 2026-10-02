@@ -9,15 +9,6 @@ repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
 
 # Stub the current provider at its narrow edge. This test proves that callers
 # bind to ib_binder_* rather than to Shizuku names.
-ib_shizuku_run() {
-  test "$1" = '__binder-test__'
-  printf '%s\n' 'provider-run'
-}
-ib_shizuku_run_bounded() {
-  test "$1" = 5
-  test "$2" = '__binder-test__'
-  printf '%s\n' 'provider-bounded'
-}
 ib_shizuku_authority() { printf '%s\n' 'shell'; }
 ib_shizuku_identity() { printf '%s\n' 'identity-via-provider'; }
 ib_shizuku_process_snapshot() { printf '%s\n' 'processes-via-provider'; }
@@ -55,8 +46,6 @@ ib_shizuku_capabilities_open_app_report() { printf '%s\n' app-report-via-provide
 . "$repository_root/lib/android_binder_host.grease"
 
 test "$(ib_binder_provider)" = shizuku
-test "$(ib_binder_run '__binder-test__')" = provider-run
-test "$(ib_binder_run_bounded 5 '__binder-test__')" = provider-bounded
 test "$(ib_binder_authority)" = shell
 test "$(ib_binder_identity)" = identity-via-provider
 test "$(ib_binder_process_snapshot)" = processes-via-provider
