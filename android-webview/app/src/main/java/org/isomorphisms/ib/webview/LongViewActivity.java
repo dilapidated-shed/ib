@@ -76,7 +76,7 @@ public final class LongViewActivity extends Activity {
     private boolean first_useful_recorded;
     private long app_data_bytes_at_heavy_start;
     private long cumulative_offscreen_ms;
-    private int peak_host_pss_kib;
+    private long peak_host_pss_kib;
 
     @Override
     protected void onCreate(Bundle saved_instance_state) {
