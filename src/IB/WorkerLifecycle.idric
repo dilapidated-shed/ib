@@ -1,0 +1,162 @@
+module IB.WorkerLifecycle
+
+import IB.LongViewTask
+
+-- Durable work identity is browser-owned. A PID/process start identity is only
+-- an attachment to one execution attempt.
+
+public export
+choice worker_operation_class one_of
+  restartable_bounded_observation
+  nonreplayable_state_change
+
+public export
+choice worker_phase one_of
+  worker_planned
+  worker_running
+  worker_result_committed
+  worker_exited_without_result
+  worker_failed
+  worker_killed
+  worker_authority_unavailable
+
+public export
+choice worker_recovery one_of
+  no_restart_needed
+  automatic_restart_allowed
+  wait_for_authority
+  manual_recovery_required
+
+public export
+record ProcessAttachment where
+  constructor AttachedProcess
+  process_id : Integer
+  process_start_ticks : Integer
+  process_name : DurableIdentity
+  host_generation : Integer
+
+public export
+record WorkerTask where
+  constructor Worker
+  work_identity : DurableIdentity
+  result_identity : DurableIdentity
+  operation_class : worker_operation_class
+  maximum_attempts : Integer
+  attempts_started : Integer
+  phase : worker_phase
+  attachment : Maybe ProcessAttachment
+  committed_result : Bool
+
+public export
+plan_worker :
+  DurableIdentity → DurableIdentity → worker_operation_class → Integer →
+  Maybe WorkerTask
+plan_worker work result operation maximum_attempts =
+  if maximum_attempts > 0
+    then Just (Worker work result operation maximum_attempts 0 worker_planned Nothing False)
+    else Nothing
+
+public export
+attach_worker_process :
+  Integer → Integer → DurableIdentity → Integer → WorkerTask → Maybe WorkerTask
+attach_worker_process pid start_ticks process_name host_generation task =
+  if pid > 1 &&
+     start_ticks >= 0 &&
+     host_generation >= 0 &&
+     task.attempts_started < task.maximum_attempts &&
+     not task.committed_result
+    then Just
+      (Worker
+        task.work_identity
+        task.result_identity
+        task.operation_class
+        task.maximum_attempts
+        (task.attempts_started + 1)
+        worker_running
+        (Just (AttachedProcess pid start_ticks process_name host_generation))
+        False)
+    else Nothing
+
+public export
+commit_worker_result : WorkerTask → WorkerTask
+commit_worker_result task =
+  Worker
+    task.work_identity
+    task.result_identity
+    task.operation_class
+    task.maximum_attempts
+    task.attempts_started
+    worker_result_committed
+    task.attachment
+    True
+
+worker_without_attachment : worker_phase → WorkerTask → WorkerTask
+worker_without_attachment next_phase task =
+  Worker
+    task.work_identity
+    task.result_identity
+    task.operation_class
+    task.maximum_attempts
+    task.attempts_started
+    next_phase
+    Nothing
+    task.committed_result
+
+public export
+worker_exited : Bool → WorkerTask → WorkerTask
+worker_exited successful task =
+  if task.committed_result
+    then worker_without_attachment worker_result_committed task
+    else if successful
+      then worker_without_attachment worker_exited_without_result task
+      else worker_without_attachment worker_failed task
+
+public export
+worker_was_killed : WorkerTask → WorkerTask
+worker_was_killed task =
+  if task.committed_result
+    then worker_without_attachment worker_result_committed task
+    else worker_without_attachment worker_killed task
+
+public export
+worker_authority_was_lost : WorkerTask → WorkerTask
+worker_authority_was_lost task =
+  if task.committed_result
+    then worker_without_attachment worker_result_committed task
+    else worker_without_attachment worker_authority_unavailable task
+
+public export
+recovery_for : WorkerTask → worker_recovery
+recovery_for task =
+  if task.committed_result
+    then no_restart_needed
+    else
+      case task.phase of
+        worker_authority_unavailable ⇒ wait_for_authority
+        _ ⇒
+          case task.operation_class of
+            nonreplayable_state_change ⇒ manual_recovery_required
+            restartable_bounded_observation ⇒
+              if task.attempts_started < task.maximum_attempts
+                then automatic_restart_allowed
+                else manual_recovery_required
+
+-- Frontend/rish caller lifetime is not durable task state. Disconnecting a
+-- caller therefore does not mutate the task or manufacture a failure.
+public export
+caller_disconnected : WorkerTask → WorkerTask
+caller_disconnected task = task
+
+public export
+same_worker_identity : WorkerTask → WorkerTask → Bool
+same_worker_identity before after =
+  identity_text before.work_identity == identity_text after.work_identity &&
+  identity_text before.result_identity == identity_text after.result_identity
+
+public export
+attachment_matches :
+  Integer → Integer → DurableIdentity → ProcessAttachment → Bool
+attachment_matches pid start_ticks process_name attachment =
+  attachment.process_id == pid &&
+  attachment.process_start_ticks == start_ticks &&
+  identity_text attachment.process_name == identity_text process_name
