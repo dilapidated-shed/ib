@@ -1,7 +1,8 @@
-# Grease/POSIX-shell adapter for the first bounded Longview worker experiment.
-# This worker is deliberately non-sensitive and deterministic. It uses a fixed
-# shell-owned fixture root; it is not a WebView host and it never receives page,
-# model, downloaded-script, or arbitrary command text.
+# Binder-facing Longview worker adapter.
+#
+# Longview owns durable work/result identity and validates caller-controlled
+# atoms. Android execution is supplied by the Binder boundary. The current
+# Binder provider is Shizuku, but no Shizuku/rish/shell command belongs here.
 
 ib_longview_worker_validate_atom() {
   if test "$#" -ne 1; then
@@ -19,87 +20,16 @@ ib_longview_worker_start() {
     printf '%s\n' 'ib_longview_worker_start expects WORK_ID RESULT_ID immediate|delayed' >&2
     return 2
   fi
-
-  work_id=$1
-  result_id=$2
-  mode=$3
-  ib_longview_worker_validate_atom "$work_id" || return 2
-  ib_longview_worker_validate_atom "$result_id" || return 2
-
-  case "$mode" in
-    immediate) delay=0 ;;
-    delayed) delay=30 ;;
+  ib_longview_worker_validate_atom "$1" || return 2
+  ib_longview_worker_validate_atom "$2" || return 2
+  case "$3" in
+    immediate|delayed) ;;
     *)
-      printf 'invalid worker mode: %s\n' "$mode" >&2
+      printf 'invalid worker mode: %s\n' "$3" >&2
       return 2
       ;;
   esac
-
-  # All interpolated values above are restricted atoms or one selected numeric
-  # literal. The worker program itself is fixed, reviewed command text.
-  command_text="# IB_LONGVIEW_WORKER_START_V1
-set -eu
-root=/data/local/tmp/ib-longview-fixture-v1
-backend=android-shizuku-shell-v1
-work=$work_id
-result=$result_id
-delay=$delay
-umask 077
-mkdir -p \"\$root/.ib-staging\" \"\$root/objects\" \"\$root/work\"
-marker=\"\$root/.ib-backend-id\"
-if test -f \"\$marker\"; then
-  test \"\$(cat \"\$marker\")\" = \"\$backend\" || exit 67
-else
-  printf '%s\\n' \"\$backend\" >\"\$marker.tmp.\$\$\"
-  sync
-  mv \"\$marker.tmp.\$\$\" \"\$marker\"
-  sync
-fi
-status=\"\$root/work/\$work.status\"
-printf 'running\\n' >\"\$status\"
-(
-  trap '' HUP
-  if test \"\$delay\" -gt 0; then sleep \"\$delay\"; fi
-  tmp=\"\$root/.ib-staging/\$result.\$\$.tmp\"
-  final=\"\$root/objects/\$result\"
-  {
-    printf 'schema\\tib-longview-worker-result-v1\\n'
-    printf 'work_id\\t%s\\n' \"\$work\"
-    printf 'result_id\\t%s\\n' \"\$result\"
-    printf 'value\\tdeterministic-ok\\n'
-  } >\"\$tmp\"
-  bytes=\$(wc -c <\"\$tmp\" | tr -d '[:space:]')
-  test \"\$bytes\" -le 256 || {
-    rm -f \"\$tmp\"
-    printf 'failed:result-limit\\n' >\"\$status\"
-    exit 69
-  }
-  if test -e \"\$final\"; then
-    if cmp -s \"\$tmp\" \"\$final\"; then
-      rm -f \"\$tmp\"
-    else
-      rm -f \"\$tmp\"
-      printf 'failed:object-conflict\\n' >\"\$status\"
-      exit 70
-    fi
-  else
-    sync
-    mv \"\$tmp\" \"\$final\"
-    sync
-  fi
-  printf 'committed\\n' >\"\$status\"
-) </dev/null >/dev/null 2>&1 &
-pid=\$!
-stat=/proc/\$pid/stat
-comm=/proc/\$pid/comm
-test -r \"\$stat\" && test -r \"\$comm\" || exit 44
-tail=\$(sed 's/^[0-9][0-9]* (.*) //' \"\$stat\") || exit 44
-start=\$(printf '%s\\n' \"\$tail\" | awk '{print \$20}')
-name=\$(tr -d '\\r\\n' <\"\$comm\")
-test -n \"\$start\" && test -n \"\$name\" || exit 44
-printf 'worker\\t%s\\t%s\\t%s\\n' \"\$pid\" \"\$start\" \"\$name\""
-
-  ib_binder_run_bounded 5 "$command_text"
+  ib_binder_worker_start "$1" "$2" "$3"
 }
 
 ib_longview_worker_status() {
@@ -107,23 +37,8 @@ ib_longview_worker_status() {
     printf '%s\n' 'ib_longview_worker_status expects WORK_ID' >&2
     return 2
   fi
-  work_id=$1
-  ib_longview_worker_validate_atom "$work_id" || return 2
-
-  command_text="# IB_LONGVIEW_WORKER_STATUS_V1
-set -eu
-root=/data/local/tmp/ib-longview-fixture-v1
-backend=android-shizuku-shell-v1
-work=$work_id
-marker=\"\$root/.ib-backend-id\"
-test -f \"\$marker\" || exit 67
-test \"\$(cat \"\$marker\")\" = \"\$backend\" || exit 67
-status=\"\$root/work/\$work.status\"
-test -f \"\$status\" || exit 68
-bytes=\$(wc -c <\"\$status\" | tr -d '[:space:]')
-test \"\$bytes\" -le 64 || exit 69
-cat \"\$status\""
-  ib_binder_run_bounded 5 "$command_text"
+  ib_longview_worker_validate_atom "$1" || return 2
+  ib_binder_worker_status "$1"
 }
 
 ib_longview_worker_read_result() {
@@ -131,78 +46,21 @@ ib_longview_worker_read_result() {
     printf '%s\n' 'ib_longview_worker_read_result expects RESULT_ID' >&2
     return 2
   fi
-  result_id=$1
-  ib_longview_worker_validate_atom "$result_id" || return 2
-
-  command_text="# IB_LONGVIEW_WORKER_READ_V1
-set -eu
-root=/data/local/tmp/ib-longview-fixture-v1
-backend=android-shizuku-shell-v1
-result=$result_id
-marker=\"\$root/.ib-backend-id\"
-test -f \"\$marker\" || exit 67
-test \"\$(cat \"\$marker\")\" = \"\$backend\" || exit 67
-final=\"\$root/objects/\$result\"
-test -f \"\$final\" || exit 68
-bytes=\$(wc -c <\"\$final\" | tr -d '[:space:]')
-test \"\$bytes\" -le 256 || exit 69
-cat \"\$final\""
-  ib_binder_run_bounded 5 "$command_text"
+  ib_longview_worker_validate_atom "$1" || return 2
+  ib_binder_worker_read_result "$1"
 }
-
 
 ib_longview_worker_observe() {
   if test "$#" -ne 5; then
     printf '%s\n' 'ib_longview_worker_observe expects WORK_ID RESULT_ID PID START_TICKS PROCESS_NAME' >&2
     return 2
   fi
-  work_id=$1
-  result_id=$2
-  pid=$3
-  start_ticks=$4
-  process_name=$5
 
-  ib_longview_worker_validate_atom "$work_id" || return 2
-  ib_longview_worker_validate_atom "$result_id" || return 2
-  ib_binder_validate_pid "$pid" || return 2
-  ib_binder_validate_start_ticks "$start_ticks" || return 2
-  ib_binder_validate_process_name "$process_name" || return 2
+  ib_longview_worker_validate_atom "$1" || return 2
+  ib_longview_worker_validate_atom "$2" || return 2
+  ib_binder_validate_pid "$3" || return 2
+  ib_binder_validate_start_ticks "$4" || return 2
+  ib_binder_validate_process_name "$5" || return 2
 
-  command_text="# IB_LONGVIEW_WORKER_OBSERVE_V1
-set -eu
-root=/data/local/tmp/ib-longview-fixture-v1
-backend=android-shizuku-shell-v1
-work=$work_id
-result=$result_id
-pid=$pid
-expected_start=$start_ticks
-expected_name=$process_name
-marker=\"\$root/.ib-backend-id\"
-test -f \"\$marker\" || exit 67
-test \"\$(cat \"\$marker\")\" = \"\$backend\" || exit 67
-final=\"\$root/objects/\$result\"
-if test -f \"\$final\"; then
-  bytes=\$(wc -c <\"\$final\" | tr -d '[:space:]')
-  test \"\$bytes\" -le 256 || exit 69
-  grep -F -x \"\$(printf 'work_id\\t%s' \"\$work\")\" \"\$final\" >/dev/null || exit 70
-  grep -F -x \"\$(printf 'result_id\\t%s' \"\$result\")\" \"\$final\" >/dev/null || exit 70
-  printf 'committed\\n'
-  exit 0
-fi
-stat=/proc/\$pid/stat
-comm=/proc/\$pid/comm
-if test -r \"\$stat\" && test -r \"\$comm\"; then
-  tail=\$(sed 's/^[0-9][0-9]* (.*) //' \"\$stat\") || exit 44
-  observed_start=\$(printf '%s\\n' \"\$tail\" | awk '{print \$20}')
-  observed_name=\$(tr -d '\\r\\n' <\"\$comm\")
-  if test \"\$observed_start\" = \"\$expected_start\" &&
-     test \"\$observed_name\" = \"\$expected_name\"; then
-    printf 'running\\n'
-  else
-    printf 'gone-uncommitted\\n'
-  fi
-else
-  printf 'gone-uncommitted\\n'
-fi"
-  ib_binder_run_bounded 5 "$command_text"
+  ib_binder_worker_observe "$1" "$2" "$3" "$4" "$5"
 }
