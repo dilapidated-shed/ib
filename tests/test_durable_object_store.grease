@@ -1,0 +1,100 @@
+#!/bin/sh
+set -eu
+
+repository_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+. "$repository_root/lib/durable_object_store.grease"
+
+work=$(mktemp -d)
+cleanup() {
+  rm -rf "$work"
+}
+trap cleanup EXIT HUP INT TERM
+
+root="$work/card"
+mkdir "$root"
+source_file="$work/source"
+printf 'hello durable world\n' >"$source_file"
+
+ib_store_init "$root" card-a
+ib_store_publish_bounded "$root" card-a object-1 "$source_file" 64
+
+ib_store_read "$root" card-a object-1 >"$work/read-1"
+ib_store_read "$root" card-a object-1 >"$work/read-2"
+cmp "$source_file" "$work/read-1"
+cmp "$work/read-1" "$work/read-2"
+
+# A torn/unpublished staging tail is not a durable object.
+printf 'unpublished tail\n' >"$root/.ib-staging/object-torn.manual"
+if ib_store_read "$root" card-a object-torn >"$work/torn.out" 2>"$work/torn.err"; then
+  printf 'unpublished staging object became readable\n' >&2
+  exit 1
+else
+  status=$?
+fi
+test "$status" -eq "$IB_STORE_OBJECT_ABSENT"
+
+# Bounded publication rejects an oversized source without creating a result.
+printf '0123456789\n' >"$work/oversized"
+if ib_store_publish_bounded "$root" card-a object-2 "$work/oversized" 4     >"$work/oversized.out" 2>"$work/oversized.err"; then
+  printf 'oversized object was published\n' >&2
+  exit 1
+else
+  status=$?
+fi
+test "$status" -eq "$IB_STORE_LIMIT_EXCEEDED"
+test ! -e "$root/objects/object-2"
+
+# Immutable object identity is idempotent for equal bytes and rejects conflict.
+ib_store_publish_bounded "$root" card-a object-1 "$source_file" 64
+printf 'different bytes\n' >"$work/conflict"
+if ib_store_publish_bounded "$root" card-a object-1 "$work/conflict" 64     >"$work/conflict.out" 2>"$work/conflict.err"; then
+  printf 'conflicting bytes replaced a durable object\n' >&2
+  exit 1
+else
+  status=$?
+fi
+test "$status" -eq "$IB_STORE_OBJECT_CONFLICT"
+ib_store_read "$root" card-a object-1 >"$work/read-after-conflict"
+cmp "$source_file" "$work/read-after-conflict"
+
+# Logical object identity does not contain the current mount path.
+moved="$work/remounted-card"
+mv "$root" "$moved"
+ib_store_read "$moved" card-a object-1 >"$work/read-after-move"
+cmp "$source_file" "$work/read-after-move"
+
+# An absent volume is explicit and never silently redirected.
+offline="$work/offline-card"
+mv "$moved" "$offline"
+if ib_store_read "$moved" card-a object-1 >"$work/absent.out" 2>"$work/absent.err"; then
+  printf 'absent volume was reported readable\n' >&2
+  exit 1
+else
+  status=$?
+fi
+test "$status" -eq "$IB_STORE_VOLUME_ABSENT"
+
+# A different card mounted at the same pathname is not the original backend.
+mkdir "$moved"
+ib_store_init "$moved" card-b
+if ib_store_read "$moved" card-a object-1 >"$work/replaced.out" 2>"$work/replaced.err"; then
+  printf 'replacement card satisfied old backend identity\n' >&2
+  exit 1
+else
+  status=$?
+fi
+test "$status" -eq "$IB_STORE_BACKEND_MISMATCH"
+
+rm -rf "$moved"
+mv "$offline" "$moved"
+ib_store_read "$moved" card-a object-1 >"$work/read-after-return"
+cmp "$source_file" "$work/read-after-return"
+
+# Decimal byte limits are compared without narrowing through shell arithmetic.
+ib_store_decimal_leq 5000000000 8000000000
+if ib_store_decimal_leq 8000000000 5000000000; then
+  printf 'wide decimal comparison reversed ordering\n' >&2
+  exit 1
+fi
+
+printf '%s\n' 'durable ordinary-file store tests: ok'
