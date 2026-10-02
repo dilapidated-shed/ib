@@ -7,6 +7,21 @@
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
         <activity
+            android:name=".LiveChannelActivity"
+            android:exported="true"
+            android:label="IB Live Channel Reader">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="org.isomorphisms.ib.webview.live"
+                    android:pathPrefix="/channel/"
+                    android:scheme="content" />
+            </intent-filter>
+        </activity>
+
+        <activity
             android:name=".ResultReaderActivity"
             android:exported="true"
             android:label="IB Result Reader">
