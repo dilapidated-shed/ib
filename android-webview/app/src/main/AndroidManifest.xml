@@ -2,12 +2,37 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <queries>
+        <package android:name="org.isomorphisms.ib.resultreader" />
+    </queries>
+
     <application
         android:allowBackup="false"
         android:label="IB"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="true">
+
+        <provider
+            android:name=".DurableResultProvider"
+            android:authorities="org.isomorphisms.ib.webview.results"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <grant-uri-permission android:pathPrefix="/result/" />
+        </provider>
+
+        <activity
+            android:name=".DurableResultFixtureActivity"
+            android:exported="true"
+            android:label="IB Durable Result">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data
+                    android:host="durable-result-fixture"
+                    android:scheme="ib" />
+            </intent-filter>
+        </activity>
 
         <activity
             android:name=".DeviceCapabilitiesActivity"
