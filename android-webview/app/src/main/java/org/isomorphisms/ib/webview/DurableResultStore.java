@@ -10,10 +10,11 @@ import java.nio.file.StandardCopyOption;
 import java.util.Arrays;
 import java.util.UUID;
 
-/** Tiny app-private durable store used only by the issue #84 experiment. */
+/** Small app-private immutable result store shared by Longview and provider experiments. */
 public final class DurableResultStore {
     public static final String RESULT_ID = "hello-v1";
     public static final byte[] RESULT_BYTES = "hello\n".getBytes(StandardCharsets.UTF_8);
+    public static final int MAX_RESULT_BYTES = 4096;
 
     private final Path root;
 
@@ -22,21 +23,33 @@ public final class DurableResultStore {
     }
 
     public Path commit_fixture() throws IOException {
+        return commit_immutable(RESULT_ID, RESULT_BYTES);
+    }
+
+    public Path commit_immutable(String result_id, byte[] bytes) throws IOException {
+        validate_result_id(result_id);
+        if (bytes == null) {
+            throw new IllegalArgumentException("durable result bytes are required");
+        }
+        if (bytes.length > MAX_RESULT_BYTES) {
+            throw new IllegalArgumentException("durable result exceeds byte limit");
+        }
+
         Files.createDirectories(root);
-        Path target = result_path(RESULT_ID);
+        Path target = result_path(result_id);
         if (Files.exists(target)) {
-            verify_fixture(target);
+            verify_equal(target, bytes);
             return target;
         }
 
-        Path temporary = root.resolve("." + RESULT_ID + "." + UUID.randomUUID() + ".tmp");
-        write_synced(temporary, RESULT_BYTES);
+        Path temporary = root.resolve("." + result_id + "." + UUID.randomUUID() + ".tmp");
+        write_synced(temporary, bytes);
         try {
             move_atomically(temporary, target, false);
         } catch (java.nio.file.FileAlreadyExistsException exception) {
             Files.deleteIfExists(temporary);
         }
-        verify_fixture(target);
+        verify_equal(target, bytes);
         return target;
     }
 
@@ -73,16 +86,24 @@ public final class DurableResultStore {
     }
 
     private Path result_path(String result_id) {
-        if (!RESULT_ID.equals(result_id)) {
-            throw new IllegalArgumentException("unknown durable result id");
-        }
-        return root.resolve(RESULT_ID + ".txt");
+        validate_result_id(result_id);
+        return root.resolve(result_id + ".txt");
     }
 
-    private static void verify_fixture(Path target) throws IOException {
+    private static void validate_result_id(String result_id) {
+        if (result_id == null
+            || result_id.isEmpty()
+            || ".".equals(result_id)
+            || "..".equals(result_id)
+            || !result_id.matches("[A-Za-z0-9._-]+")) {
+            throw new IllegalArgumentException("invalid durable result id");
+        }
+    }
+
+    private static void verify_equal(Path target, byte[] expected) throws IOException {
         byte[] actual = Files.readAllBytes(target);
-        if (!Arrays.equals(actual, RESULT_BYTES)) {
-            throw new IOException("existing durable result differs from fixture bytes");
+        if (!Arrays.equals(actual, expected)) {
+            throw new IOException("existing durable result differs from committed bytes");
         }
     }
 

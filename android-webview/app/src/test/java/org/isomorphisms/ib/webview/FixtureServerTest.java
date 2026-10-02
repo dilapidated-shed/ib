@@ -48,6 +48,47 @@ public final class FixtureServerTest {
         }
     }
 
+    @Test
+    public void heavy_page_exposes_useful_content_before_bounded_junk_assets() throws Exception {
+        try (FixtureServer server = new FixtureServer()) {
+            server.start();
+
+            HttpURLConnection page = open(server.heavy_url(), null);
+            assertEquals(200, page.getResponseCode());
+            String body;
+            try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(page.getInputStream(), StandardCharsets.UTF_8))) {
+                body = reader.lines().collect(Collectors.joining("\n"));
+            }
+            page.disconnect();
+
+            assertTrue(body.contains("useful-table"));
+            assertTrue(body.contains("useful-control"));
+            assertTrue(body.contains("IBLongView.firstUseful('heavy-v1')"));
+            assertTrue(body.contains("/junk/0.svg"));
+            assertTrue(body.contains("/junk/7.svg"));
+
+            HttpURLConnection junk = open(
+                server.heavy_url().replace("/heavy", "/junk/0.svg"),
+                null
+            );
+            assertEquals(200, junk.getResponseCode());
+            int junk_bytes = 0;
+            try (java.io.InputStream input = junk.getInputStream()) {
+                byte[] buffer = new byte[8192];
+                int count;
+                while ((count = input.read(buffer)) != -1) {
+                    junk_bytes += count;
+                }
+            }
+            junk.disconnect();
+
+            assertTrue(junk_bytes >= 256 * 1024);
+            assertTrue(server.served_response_count() >= 2);
+            assertTrue(server.served_body_bytes() >= junk_bytes);
+        }
+    }
+
     private static HttpURLConnection open(String url, String cookie) throws Exception {
         HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
         connection.setConnectTimeout(1500);
