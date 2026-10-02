@@ -153,6 +153,8 @@ exercise_core() {
   sh -n lib/durable_object_store.grease
   sh -n tests/test_durable_object_store.grease
   sh tests/test_durable_object_store.grease
+  sh -n lib/android_shizuku_worker_provider.grease
+  sh -n lib/android_shizuku_capabilities_provider.grease
   sh -n lib/android_binder_host.grease
   sh -n bin/ib_android_binder.grease
   sh -n tests/test_android_binder_host.grease
