@@ -11,9 +11,15 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicLong;
 
 final class FixtureServer implements AutoCloseable {
+    private static final int HEAVY_ASSET_COUNT = 8;
+    private static final int HEAVY_ASSET_PAYLOAD_BYTES = 256 * 1024;
+
     private final String session_value = UUID.randomUUID().toString();
+    private final AtomicLong served_body_bytes = new AtomicLong();
+    private final AtomicLong served_responses = new AtomicLong();
     private volatile boolean running;
     private ServerSocket server_socket;
     private Thread accept_thread;
@@ -40,6 +46,18 @@ final class FixtureServer implements AutoCloseable {
 
     String probe_url() {
         return base_url() + "/probe";
+    }
+
+    String heavy_url() {
+        return base_url() + "/heavy";
+    }
+
+    long served_body_bytes() {
+        return served_body_bytes.get();
+    }
+
+    long served_response_count() {
+        return served_responses.get();
     }
 
     private String base_url() {
@@ -121,14 +139,37 @@ final class FixtureServer implements AutoCloseable {
                     null,
                     null
                 );
-                default -> respond(socket, 404, "Not Found", "text/plain; charset=utf-8", "not found", null, null);
+                case "/heavy" -> respond(
+                    socket,
+                    200,
+                    "OK",
+                    "text/html; charset=utf-8",
+                    heavy_page(),
+                    null,
+                    null
+                );
+                default -> {
+                    if (path.startsWith("/junk/") && path.endsWith(".svg")) {
+                        respond(
+                            socket,
+                            200,
+                            "OK",
+                            "image/svg+xml",
+                            heavy_svg(path),
+                            null,
+                            null
+                        );
+                    } else {
+                        respond(socket, 404, "Not Found", "text/plain; charset=utf-8", "not found", null, null);
+                    }
+                }
             }
         } catch (IOException ignored) {
             // The fixture exists only to provide deterministic local HTTP behavior.
         }
     }
 
-    private static void respond(
+    private void respond(
         Socket socket,
         int code,
         String reason,
@@ -156,6 +197,8 @@ final class FixtureServer implements AutoCloseable {
         output.write(headers.toString().getBytes(StandardCharsets.US_ASCII));
         output.write(body_bytes);
         output.flush();
+        served_body_bytes.addAndGet(body_bytes.length);
+        served_responses.incrementAndGet();
     }
 
     private static String form_page() {
@@ -173,6 +216,40 @@ final class FixtureServer implements AutoCloseable {
             + "window.heap_canary=(self.crypto&&crypto.randomUUID)?crypto.randomUUID():String(Date.now())+Math.random();"
             + "document.getElementById('heap_marker').textContent='renderer canary '+window.heap_canary;"
             + "</script></body></html>";
+    }
+
+    private static String heavy_page() {
+        StringBuilder page = new StringBuilder();
+        page.append("<!doctype html><html><head>")
+            .append("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">")
+            .append("<title>IB heavy Longview fixture</title>")
+            .append("<style>body{font-family:sans-serif;padding:16px}table{border-collapse:collapse}")
+            .append("td,th{border:1px solid #888;padding:7px}.junk{width:100%;height:96px;display:block}</style>")
+            .append("</head><body>")
+            .append("<h2>Useful result</h2>")
+            .append("<table id=\"useful-table\"><tr><th>API</th><th>Status</th></tr>")
+            .append("<tr><td>Longview fixture</td><td>ready</td></tr></table>")
+            .append("<button id=\"useful-control\" type=\"button\">Continue</button>")
+            .append("<script>try{IBLongView.firstUseful('heavy-v1');}catch(e){}</script>")
+            .append("<h3>Irrelevant heavy media below</h3>");
+        for (int index = 0; index < HEAVY_ASSET_COUNT; index++) {
+            page.append("<img class=\"junk\" alt=\"\" src=\"/junk/")
+                .append(index)
+                .append(".svg\">");
+        }
+        page.append("</body></html>");
+        return page.toString();
+    }
+
+    private static String heavy_svg(String path) {
+        StringBuilder svg = new StringBuilder(HEAVY_ASSET_PAYLOAD_BYTES + 256);
+        svg.append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"64\" height=\"64\">")
+            .append("<desc>").append(path).append(' ');
+        while (svg.length() < HEAVY_ASSET_PAYLOAD_BYTES) {
+            svg.append("irrelevant-media-padding-");
+        }
+        svg.append("</desc><rect width=\"64\" height=\"64\"/></svg>");
+        return svg.toString();
     }
 
     private static String unauthorized_page() {
