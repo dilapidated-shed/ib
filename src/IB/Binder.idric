@@ -16,3 +16,11 @@ record BinderAccess where
 public export
 android_binder_access : BinderAccess
 android_binder_access = BinderVia shizuku
+
+public export
+binder_provider_text : binder_provider → String
+binder_provider_text shizuku = "shizuku"
+
+public export
+binder_access_provider_text : BinderAccess → String
+binder_access_provider_text access = binder_provider_text access.provider
