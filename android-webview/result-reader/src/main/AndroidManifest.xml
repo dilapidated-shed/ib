@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:allowBackup="false"
+        android:label="IB Result Reader"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".ResultReaderActivity"
+            android:exported="true"
+            android:label="IB Result Reader">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:host="org.isomorphisms.ib.webview.results"
+                    android:pathPrefix="/result/"
+                    android:scheme="content" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>
