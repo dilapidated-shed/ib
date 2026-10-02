@@ -137,7 +137,10 @@ public final class LongViewActivity extends Activity {
         report_retained_heavy_result("startup");
 
         attach_webview(new_task);
-        if (task.navigation.recovery == DurableNavigation.Recovery.UNAVAILABLE) {
+        String fixture = getIntent().getStringExtra("fixture");
+        if ("heavy".equals(fixture)) {
+            start_heavy_fixture();
+        } else if (task.navigation.recovery == DurableNavigation.Recovery.UNAVAILABLE) {
             mark_remote_site_blocked("no-safe-navigation");
         } else {
             web_view.loadUrl(volatile_initial_url);
@@ -149,6 +152,11 @@ public final class LongViewActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        String fixture = intent.getStringExtra("fixture");
+        if ("heavy".equals(fixture)) {
+            start_heavy_fixture();
+            return;
+        }
         String supplied_url = intent.getStringExtra("url");
         if (supplied_url != null && !supplied_url.trim().isEmpty()) {
             url_input.setText(supplied_url);
