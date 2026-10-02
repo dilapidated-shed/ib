@@ -1,0 +1,88 @@
+module StorageAdmissionSmoke
+
+import IB.StorageAdmission
+
+is_just : Maybe a → Bool
+is_just Nothing = False
+is_just (Just _) = True
+
+is_denied_unknown : admission_result → Bool
+is_denied_unknown denied_unknown_capacity = True
+is_denied_unknown _ = False
+
+is_denied_access : admission_result → Bool
+is_denied_access denied_writer_access = True
+is_denied_access _ = False
+
+is_denied_read_only : admission_result → Bool
+is_denied_read_only denied_read_only = True
+is_denied_read_only _ = False
+
+is_denied_absent : admission_result → Bool
+is_denied_absent denied_volume_absent = True
+is_denied_absent _ = False
+
+is_denied_stale : admission_result → Bool
+is_denied_stale denied_stale_observation = True
+is_denied_stale _ = False
+
+simultaneous_reservation_is_bounded : Bool
+simultaneous_reservation_is_bounded =
+  let initial = Ledger measured_writable (Just 1000) 200 100 in
+  case reserve_peak 400 initial of
+    Nothing ⇒ False
+    Just first ⇒
+      case reserve_peak 400 first of
+        Nothing ⇒ True
+        Just _ ⇒ False
+
+reflected_allocation_not_double_charged : Bool
+reflected_allocation_not_double_charged =
+  let initial = Ledger measured_writable (Just 1000) 200 0 in
+  case reserve_peak 400 initial of
+    Nothing ⇒ False
+    Just reserved ⇒
+      case reflect_committed_allocation 400 600 reserved of
+        Nothing ⇒ False
+        Just reflected ⇒ is_just (reserve_peak 300 reflected)
+
+large_capacity_is_not_32_bit : Bool
+large_capacity_is_not_32_bit =
+  is_just
+    (reserve_peak
+      5000000000
+      (Ledger measured_writable (Just 8000000000) 1000000000 0))
+
+distinct_observation_failures : Bool
+distinct_observation_failures =
+  is_denied_unknown
+    (admission_for (Ledger capacity_unknown Nothing 100 0) 1) &&
+  is_denied_access
+    (admission_for (Ledger writer_denied (Just 1000) 100 0) 1) &&
+  is_denied_read_only
+    (admission_for (Ledger writer_read_only (Just 1000) 100 0) 1) &&
+  is_denied_absent
+    (admission_for (Ledger volume_absent Nothing 100 0) 1) &&
+  is_denied_stale
+    (admission_for (Ledger observation_stale (Just 1000) 100 0) 1)
+
+main : IO ()
+main = do
+  putStrLn
+    ("storage-admission-concurrent=" ++
+      show simultaneous_reservation_is_bounded)
+  putStrLn
+    ("storage-admission-reflected=" ++
+      show reflected_allocation_not_double_charged)
+  putStrLn
+    ("storage-admission-wide=" ++
+      show large_capacity_is_not_32_bit)
+  putStrLn
+    ("storage-admission-distinct-failures=" ++
+      show distinct_observation_failures)
+  putStrLn
+    ("storage-admission-negative-rejected=" ++
+      show
+        (case reserve_peak (-1) (Ledger measured_writable (Just 1000) 100 0) of
+           Nothing ⇒ True
+           Just _ ⇒ False))

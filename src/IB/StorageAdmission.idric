@@ -1,0 +1,109 @@
+module IB.StorageAdmission
+
+-- Per-volume admission state. Capacity observations and browser commitments are
+-- deliberately separate: a reservation is accounting, not a filesystem
+-- allocation guarantee.
+
+public export
+choice capacity_observation one_of
+  measured_writable
+  capacity_unknown
+  writer_denied
+  writer_read_only
+  volume_absent
+  observation_stale
+
+public export
+choice admission_result one_of
+  admitted
+  denied_invalid_amount
+  denied_unknown_capacity
+  denied_writer_access
+  denied_read_only
+  denied_volume_absent
+  denied_stale_observation
+  denied_below_safety_floor
+
+public export
+record SpaceLedger where
+  constructor Ledger
+  observation : capacity_observation
+  observed_available_bytes : Maybe Integer
+  safety_floor_bytes : Integer
+  unreflected_commitments_bytes : Integer
+
+valid_nonnegative : Integer → Bool
+valid_nonnegative value = value >= 0
+
+public export
+admission_for : SpaceLedger → Integer → admission_result
+admission_for ledger additional_peak =
+  if not (valid_nonnegative additional_peak) ||
+     not (valid_nonnegative ledger.safety_floor_bytes) ||
+     not (valid_nonnegative ledger.unreflected_commitments_bytes)
+    then denied_invalid_amount
+    else
+      case ledger.observation of
+        capacity_unknown ⇒ denied_unknown_capacity
+        writer_denied ⇒ denied_writer_access
+        writer_read_only ⇒ denied_read_only
+        volume_absent ⇒ denied_volume_absent
+        observation_stale ⇒ denied_stale_observation
+        measured_writable ⇒
+          case ledger.observed_available_bytes of
+            Nothing ⇒ denied_unknown_capacity
+            Just available ⇒
+              if not (valid_nonnegative available)
+                then denied_invalid_amount
+                else if
+                  available -
+                  ledger.unreflected_commitments_bytes -
+                  additional_peak >= ledger.safety_floor_bytes
+                  then admitted
+                  else denied_below_safety_floor
+
+public export
+reserve_peak : Integer → SpaceLedger → Maybe SpaceLedger
+reserve_peak additional_peak ledger =
+  case admission_for ledger additional_peak of
+    admitted ⇒
+      Just
+        (Ledger
+          ledger.observation
+          ledger.observed_available_bytes
+          ledger.safety_floor_bytes
+          (ledger.unreflected_commitments_bytes + additional_peak))
+    _ ⇒ Nothing
+
+-- The caller uses this only after a new capacity observation is known to
+-- include an allocation that was previously represented by a commitment.
+-- Clearing the matching commitment prevents the same bytes being charged once
+-- as lower free space and again as an outstanding reservation.
+public export
+reflect_committed_allocation :
+  Integer → Integer → SpaceLedger → Maybe SpaceLedger
+reflect_committed_allocation reflected_bytes newly_observed_available ledger =
+  if not (valid_nonnegative reflected_bytes) ||
+     not (valid_nonnegative newly_observed_available) ||
+     reflected_bytes > ledger.unreflected_commitments_bytes
+    then Nothing
+    else
+      case ledger.observation of
+        measured_writable ⇒
+          Just
+            (Ledger
+              measured_writable
+              (Just newly_observed_available)
+              ledger.safety_floor_bytes
+              (ledger.unreflected_commitments_bytes - reflected_bytes))
+        _ ⇒ Nothing
+
+public export
+replace_observation :
+  capacity_observation → Maybe Integer → SpaceLedger → SpaceLedger
+replace_observation observation available ledger =
+  Ledger
+    observation
+    available
+    ledger.safety_floor_bytes
+    ledger.unreflected_commitments_bytes

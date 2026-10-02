@@ -1,0 +1,183 @@
+module IB.WorkBounds
+
+-- Runtime work limits are independent of storage admission. A large writable
+-- volume does not authorize unbounded transfer, expansion, decoding, or
+-- concurrency.
+
+public export
+choice work_bound_failure one_of
+  invalid_work_delta
+  raw_transfer_limit
+  expanded_bytes_limit
+  temporary_bytes_limit
+  result_bytes_limit
+  derived_bytes_limit
+  diagnostic_bytes_limit
+  decoded_pixels_limit
+  frame_limit
+  parser_state_limit
+  cpu_time_limit
+  subrequest_limit
+  worker_limit
+  resident_view_limit
+
+public export
+record WorkLimits where
+  constructor Limits
+  maximum_raw_transfer_bytes : Integer
+  maximum_expanded_bytes : Integer
+  maximum_temporary_bytes : Integer
+  maximum_result_bytes : Integer
+  maximum_derived_bytes : Integer
+  maximum_diagnostic_bytes : Integer
+  maximum_decoded_pixels : Integer
+  maximum_frames : Integer
+  maximum_parser_states : Integer
+  maximum_cpu_milliseconds : Integer
+  maximum_subrequests : Integer
+  maximum_workers : Integer
+  maximum_resident_views : Integer
+
+public export
+record WorkUsage where
+  constructor Usage
+  raw_transfer_bytes : Integer
+  expanded_bytes : Integer
+  temporary_bytes : Integer
+  result_bytes : Integer
+  derived_bytes : Integer
+  diagnostic_bytes : Integer
+  decoded_pixels : Integer
+  frames : Integer
+  parser_states : Integer
+  cpu_milliseconds : Integer
+  subrequests : Integer
+  workers : Integer
+  resident_views : Integer
+
+public export
+zero_usage : WorkUsage
+zero_usage = Usage 0 0 0 0 0 0 0 0 0 0 0 0 0
+
+public export
+record WorkDelta where
+  constructor Delta
+  raw_transfer_bytes : Integer
+  expanded_bytes : Integer
+  temporary_bytes : Integer
+  result_bytes : Integer
+  derived_bytes : Integer
+  diagnostic_bytes : Integer
+  decoded_pixels : Integer
+  frames : Integer
+  parser_states : Integer
+  cpu_milliseconds : Integer
+  subrequests : Integer
+  workers : Integer
+  resident_views : Integer
+
+nonnegative : Integer → Bool
+nonnegative value = value >= 0
+
+valid_delta : WorkDelta → Bool
+valid_delta delta =
+  nonnegative delta.raw_transfer_bytes &&
+  nonnegative delta.expanded_bytes &&
+  nonnegative delta.temporary_bytes &&
+  nonnegative delta.result_bytes &&
+  nonnegative delta.derived_bytes &&
+  nonnegative delta.diagnostic_bytes &&
+  nonnegative delta.decoded_pixels &&
+  nonnegative delta.frames &&
+  nonnegative delta.parser_states &&
+  nonnegative delta.cpu_milliseconds &&
+  nonnegative delta.subrequests &&
+  nonnegative delta.workers &&
+  nonnegative delta.resident_views
+
+within : Integer → Integer → Integer → Bool
+within current additional maximum =
+  nonnegative maximum && current + additional <= maximum
+
+public export
+first_work_bound_failure :
+  WorkLimits → WorkUsage → WorkDelta → Maybe work_bound_failure
+first_work_bound_failure limits usage delta =
+  if not (valid_delta delta)
+    then Just invalid_work_delta
+  else if not (within usage.raw_transfer_bytes delta.raw_transfer_bytes limits.maximum_raw_transfer_bytes)
+    then Just raw_transfer_limit
+  else if not (within usage.expanded_bytes delta.expanded_bytes limits.maximum_expanded_bytes)
+    then Just expanded_bytes_limit
+  else if not (within usage.temporary_bytes delta.temporary_bytes limits.maximum_temporary_bytes)
+    then Just temporary_bytes_limit
+  else if not (within usage.result_bytes delta.result_bytes limits.maximum_result_bytes)
+    then Just result_bytes_limit
+  else if not (within usage.derived_bytes delta.derived_bytes limits.maximum_derived_bytes)
+    then Just derived_bytes_limit
+  else if not (within usage.diagnostic_bytes delta.diagnostic_bytes limits.maximum_diagnostic_bytes)
+    then Just diagnostic_bytes_limit
+  else if not (within usage.decoded_pixels delta.decoded_pixels limits.maximum_decoded_pixels)
+    then Just decoded_pixels_limit
+  else if not (within usage.frames delta.frames limits.maximum_frames)
+    then Just frame_limit
+  else if not (within usage.parser_states delta.parser_states limits.maximum_parser_states)
+    then Just parser_state_limit
+  else if not (within usage.cpu_milliseconds delta.cpu_milliseconds limits.maximum_cpu_milliseconds)
+    then Just cpu_time_limit
+  else if not (within usage.subrequests delta.subrequests limits.maximum_subrequests)
+    then Just subrequest_limit
+  else if not (within usage.workers delta.workers limits.maximum_workers)
+    then Just worker_limit
+  else if not (within usage.resident_views delta.resident_views limits.maximum_resident_views)
+    then Just resident_view_limit
+  else Nothing
+
+add_usage : WorkUsage → WorkDelta → WorkUsage
+add_usage usage delta =
+  Usage
+    (usage.raw_transfer_bytes + delta.raw_transfer_bytes)
+    (usage.expanded_bytes + delta.expanded_bytes)
+    (usage.temporary_bytes + delta.temporary_bytes)
+    (usage.result_bytes + delta.result_bytes)
+    (usage.derived_bytes + delta.derived_bytes)
+    (usage.diagnostic_bytes + delta.diagnostic_bytes)
+    (usage.decoded_pixels + delta.decoded_pixels)
+    (usage.frames + delta.frames)
+    (usage.parser_states + delta.parser_states)
+    (usage.cpu_milliseconds + delta.cpu_milliseconds)
+    (usage.subrequests + delta.subrequests)
+    (usage.workers + delta.workers)
+    (usage.resident_views + delta.resident_views)
+
+public export
+admit_work_delta :
+  WorkLimits → WorkUsage → WorkDelta → Maybe WorkUsage
+admit_work_delta limits usage delta =
+  case first_work_bound_failure limits usage delta of
+    Nothing ⇒ Just (add_usage usage delta)
+    Just _ ⇒ Nothing
+
+-- Count actual received bytes, not Content-Length. Unknown or dishonest lengths
+-- therefore receive no unlimited grant: each chunk must renew admission.
+public export
+raw_chunk : Integer → WorkDelta
+raw_chunk bytes = Delta bytes 0 0 0 0 0 0 0 0 0 0 0 0
+
+public export
+expanded_chunk : Integer → WorkDelta
+expanded_chunk bytes = Delta 0 bytes 0 0 0 0 0 0 0 0 0 0 0
+
+public export
+diagnostic_chunk : Integer → WorkDelta
+diagnostic_chunk bytes = Delta 0 0 0 0 0 bytes 0 0 0 0 0 0 0
+
+public export
+decoded_image : Integer → Integer → WorkDelta
+decoded_image pixels frame_count =
+  Delta 0 0 0 0 0 0 pixels frame_count 0 0 0 0 0
+
+public export
+concurrency_delta : Integer → Integer → Integer → WorkDelta
+concurrency_delta requests worker_count views =
+  Delta 0 0 0 0 0 0 0 0 0 0 requests worker_count views
