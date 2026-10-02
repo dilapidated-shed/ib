@@ -58,3 +58,21 @@ ib_binder_package_pids() {
 ib_binder_force_stop_package() {
   ib_shizuku_force_stop_package "$@"
 }
+
+# Worker lifecycle is expressed at the Binder boundary. The current provider
+# lowers these operations through Shizuku/rish; callers do not know that.
+ib_binder_worker_start() {
+  ib_shizuku_worker_start "$@"
+}
+
+ib_binder_worker_status() {
+  ib_shizuku_worker_status "$@"
+}
+
+ib_binder_worker_read_result() {
+  ib_shizuku_worker_read_result "$@"
+}
+
+ib_binder_worker_observe() {
+  ib_shizuku_worker_observe "$@"
+}
