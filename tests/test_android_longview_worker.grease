@@ -53,6 +53,8 @@ case "$command_text" in
     work_id=$(printf '%s\n' "$command_text" | sed -n 's/^work=//p')
     result_id=$(printf '%s\n' "$command_text" | sed -n 's/^result=//p')
     if test -f "$FAKE_WORKER_STATE/result-$result_id"; then
+      grep -Fx "$(printf 'work_id\t%s' "$work_id")" "$FAKE_WORKER_STATE/result-$result_id" >/dev/null || exit 70
+      grep -Fx "$(printf 'result_id\t%s' "$result_id")" "$FAKE_WORKER_STATE/result-$result_id" >/dev/null || exit 70
       printf 'committed\n'
     elif test -f "$FAKE_WORKER_STATE/status-$work_id" &&
          test "$(cat "$FAKE_WORKER_STATE/status-$work_id")" = running; then
@@ -125,6 +127,14 @@ ib_shizuku_signal_owned 124 1000 sh TERM
 test "$(ib_longview_worker_status work-delayed)" = killed
 test "$(ib_longview_worker_observe work-delayed result-delayed 124 1000 sh)" = gone-uncommitted
 test "$(ib_longview_worker_observe work-1 result-1 123 999 sh)" = committed
+if ib_longview_worker_observe wrong-work result-1 123 999 sh \
+    >"$work/mismatch.out" 2>"$work/mismatch.err"; then
+  printf 'mismatched work/result identity was reported committed\n' >&2
+  exit 1
+else
+  status=$?
+fi
+test "$status" -eq 70
 
 before=$(wc -c <"$first")
 if ib_longview_worker_start 'work;bad' result-x immediate >/dev/null 2>&1; then
