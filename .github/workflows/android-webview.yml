@@ -147,7 +147,7 @@ jobs:
 
             test -s /tmp/ib-provider-pid-before
             adb shell run-as org.isomorphisms.ib.webview /system/bin/kill "$(cat /tmp/ib-provider-pid-before)"
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do current_pid="$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')" test "$current_pid" != "$(cat /tmp/ib-provider-pid-before)" && break sleep 1 done
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do current_pid="$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')"; test "$current_pid" != "$(cat /tmp/ib-provider-pid-before)" && break; sleep 1; done
             test "$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')" != "$(cat /tmp/ib-provider-pid-before)"
             printf 'PASS: IB provider host PID %s terminated.\n' "$(cat /tmp/ib-provider-pid-before)"
             adb shell am start -W -a android.intent.action.VIEW -d content://org.isomorphisms.ib.webview.results/result/hello-v1 -n org.isomorphisms.ib.resultreader/.ResultReaderActivity
@@ -168,7 +168,7 @@ jobs:
             adb shell am start -W -n org.isomorphisms.ib.webview/.LiveChannelFixtureActivity
             sleep 1
             adb shell am start -W -a android.intent.action.VIEW -d "$live_uri" -n org.isomorphisms.ib.resultreader/.LiveChannelActivity
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do adb shell run-as org.isomorphisms.ib.resultreader cat files/live-channel-reader.tsv 2>/dev/null | tr -d '\r' > /tmp/ib-live-reader.tsv || true grep -F 'exchange' /tmp/ib-live-reader.tsv | grep -F 'status=pass' >/dev/null && break sleep 1 done
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do adb shell run-as org.isomorphisms.ib.resultreader cat files/live-channel-reader.tsv 2>/dev/null | tr -d '\r' > /tmp/ib-live-reader.tsv || true; grep -F 'exchange' /tmp/ib-live-reader.tsv | grep -F 'status=pass' >/dev/null && break; sleep 1; done
             grep -F 'caller-shim=separate-android-app' /tmp/ib-live-reader.tsv
             grep -F 'exchange' /tmp/ib-live-reader.tsv | grep -F 'status=pass'
             grep -F 'calling_package=org.isomorphisms.ib.resultreader' /tmp/ib-live-reader.tsv
@@ -180,12 +180,12 @@ jobs:
             adb shell am start -W -n org.isomorphisms.ib.webview/.LiveChannelFixtureActivity
             sleep 1
             adb shell am start -W -a android.intent.action.VIEW -d "$live_uri" --ez hold true -n org.isomorphisms.ib.resultreader/.LiveChannelActivity
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do adb shell run-as org.isomorphisms.ib.resultreader cat files/live-channel-reader.tsv 2>/dev/null | tr -d '\r' > /tmp/ib-live-reader-hold.tsv || true grep -F 'hold' /tmp/ib-live-reader-hold.tsv | grep -F 'status=waiting-for-provider-close' >/dev/null && break sleep 1 done
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do adb shell run-as org.isomorphisms.ib.resultreader cat files/live-channel-reader.tsv 2>/dev/null | tr -d '\r' > /tmp/ib-live-reader-hold.tsv || true; grep -F 'hold' /tmp/ib-live-reader-hold.tsv | grep -F 'status=waiting-for-provider-close' >/dev/null && break; sleep 1; done
             grep -F 'hold' /tmp/ib-live-reader-hold.tsv | grep -F 'status=waiting-for-provider-close'
             reader_pid="$(adb shell pidof org.isomorphisms.ib.resultreader | tr -d '\r')"
             test -n "$reader_pid"
             adb shell run-as org.isomorphisms.ib.resultreader /system/bin/kill "$reader_pid"
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do adb shell run-as org.isomorphisms.ib.webview cat files/receipts/live-channel-provider.tsv 2>/dev/null | tr -d '\r' > /tmp/ib-live-provider-caller-death.tsv || true grep -F 'caller-close' /tmp/ib-live-provider-caller-death.tsv | grep -F 'status=eof' >/dev/null && break sleep 1 done
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do adb shell run-as org.isomorphisms.ib.webview cat files/receipts/live-channel-provider.tsv 2>/dev/null | tr -d '\r' > /tmp/ib-live-provider-caller-death.tsv || true; grep -F 'caller-close' /tmp/ib-live-provider-caller-death.tsv | grep -F 'status=eof' >/dev/null && break; sleep 1; done
             grep -F 'caller-close' /tmp/ib-live-provider-caller-death.tsv | grep -F 'status=eof'
             printf '%s\n' 'PASS: provider observed caller process death as live-channel EOF.'
 
@@ -195,11 +195,11 @@ jobs:
             adb shell am start -W -n org.isomorphisms.ib.webview/.LiveChannelFixtureActivity
             sleep 1
             adb shell am start -W -a android.intent.action.VIEW -d "$live_uri" --ez hold true -n org.isomorphisms.ib.resultreader/.LiveChannelActivity
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do adb shell run-as org.isomorphisms.ib.resultreader cat files/live-channel-reader.tsv 2>/dev/null | tr -d '\r' > /tmp/ib-live-reader-provider-hold.tsv || true grep -F 'hold' /tmp/ib-live-reader-provider-hold.tsv | grep -F 'status=waiting-for-provider-close' >/dev/null && break sleep 1 done
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do adb shell run-as org.isomorphisms.ib.resultreader cat files/live-channel-reader.tsv 2>/dev/null | tr -d '\r' > /tmp/ib-live-reader-provider-hold.tsv || true; grep -F 'hold' /tmp/ib-live-reader-provider-hold.tsv | grep -F 'status=waiting-for-provider-close' >/dev/null && break; sleep 1; done
             grep -F 'hold' /tmp/ib-live-reader-provider-hold.tsv | grep -F 'status=waiting-for-provider-close'
             live_provider_pid="$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')"
             test -n "$live_provider_pid"
             adb shell run-as org.isomorphisms.ib.webview /system/bin/kill "$live_provider_pid"
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do adb shell run-as org.isomorphisms.ib.resultreader cat files/live-channel-reader.tsv 2>/dev/null | tr -d '\r' > /tmp/ib-live-reader-provider-death.tsv || true grep -F 'provider-close' /tmp/ib-live-reader-provider-death.tsv >/dev/null && break sleep 1 done
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do adb shell run-as org.isomorphisms.ib.resultreader cat files/live-channel-reader.tsv 2>/dev/null | tr -d '\r' > /tmp/ib-live-reader-provider-death.tsv || true; grep -F 'provider-close' /tmp/ib-live-reader-provider-death.tsv >/dev/null && break; sleep 1; done
             grep -F 'provider-close' /tmp/ib-live-reader-provider-death.tsv
             printf '%s\n' 'PASS: reader observed provider process death through the live PFD.'
