@@ -1,0 +1,92 @@
+module WorkerLifecycleSmoke
+
+import IB.LongViewTask
+import IB.WorkerLifecycle
+
+is_auto : worker_recovery → Bool
+is_auto automatic_restart_allowed = True
+is_auto _ = False
+
+is_wait : worker_recovery → Bool
+is_wait wait_for_authority = True
+is_wait _ = False
+
+is_manual : worker_recovery → Bool
+is_manual manual_recovery_required = True
+is_manual _ = False
+
+is_done : worker_recovery → Bool
+is_done no_restart_needed = True
+is_done _ = False
+
+main : IO ()
+main =
+  case durable_identity "work-1" of
+    Nothing ⇒ pure ()
+    Just work ⇒
+      case durable_identity "result-1" of
+        Nothing ⇒ pure ()
+        Just result ⇒
+          case durable_identity "ibworker" of
+            Nothing ⇒ pure ()
+            Just process_name ⇒
+              case plan_worker work result restartable_bounded_observation 2 of
+                Nothing ⇒ pure ()
+                Just planned ⇒
+                  case attach_worker_process 123 999 process_name 7 planned of
+                    Nothing ⇒ pure ()
+                    Just running ⇒ do
+                      let caller_left = caller_disconnected running
+                      let killed = worker_was_killed caller_left
+                      let authority_lost = worker_authority_was_lost running
+                      let committed = commit_worker_result running
+                      let exited_after_commit = worker_exited True committed
+                      let nonreplayable =
+                            Worker
+                              work
+                              result
+                              nonreplayable_state_change
+                              2
+                              1
+                              worker_failed
+                              Nothing
+                              False
+                      let stale_attachment_rejected =
+                            case attach_worker_process 1 999 process_name 8 planned of
+                              Nothing ⇒ True
+                              Just _ ⇒ False
+                      let attempt_limit =
+                            case attach_worker_process 124 1000 process_name 8 killed of
+                              Nothing ⇒ False
+                              Just second ⇒
+                                case attach_worker_process 125 1001 process_name 9 second of
+                                  Nothing ⇒ True
+                                  Just _ ⇒ False
+                      let attachment_identity =
+                            case running.attachment of
+                              Nothing ⇒ False
+                              Just attachment ⇒
+                                attachment_matches 123 999 process_name attachment
+
+                      putStrLn
+                        ("worker-caller-independence=" ++
+                          show (same_worker_identity running caller_left))
+                      putStrLn
+                        ("worker-kill-restartable=" ++
+                          show (is_auto (recovery_for killed)))
+                      putStrLn
+                        ("worker-authority-wait=" ++
+                          show (is_wait (recovery_for authority_lost)))
+                      putStrLn
+                        ("worker-committed-no-restart=" ++
+                          show (is_done (recovery_for exited_after_commit)))
+                      putStrLn
+                        ("worker-state-change-manual=" ++
+                          show (is_manual (recovery_for nonreplayable)))
+                      putStrLn
+                        ("worker-stale-attachment-rejected=" ++
+                          show stale_attachment_rejected)
+                      putStrLn
+                        ("worker-attempt-limit=" ++ show attempt_limit)
+                      putStrLn
+                        ("worker-process-identity=" ++ show attachment_identity)
