@@ -126,10 +126,30 @@ exercise_core() {
   grep -Fx 'work-bounds-dishonest-length=True' /tmp/ib-work-bounds-smoke.txt
   grep -Fx 'work-bounds-negative=True' /tmp/ib-work-bounds-smoke.txt
 
+  "$idric_prefix/bin/idris2" WorkerLifecycleSmoke.idric \
+    -o ib-worker-lifecycle-smoke \
+    2>&1 | tee /tmp/idric-worker-lifecycle-compile.txt
+  test -x ./build/exec/ib-worker-lifecycle-smoke
+  ! grep -q '^Error:' /tmp/idric-worker-lifecycle-compile.txt
+  ./build/exec/ib-worker-lifecycle-smoke | tee /tmp/ib-worker-lifecycle-smoke.txt
+  grep -Fx 'worker-caller-independence=True' /tmp/ib-worker-lifecycle-smoke.txt
+  grep -Fx 'worker-kill-restartable=True' /tmp/ib-worker-lifecycle-smoke.txt
+  grep -Fx 'worker-authority-wait=True' /tmp/ib-worker-lifecycle-smoke.txt
+  grep -Fx 'worker-committed-no-restart=True' /tmp/ib-worker-lifecycle-smoke.txt
+  grep -Fx 'worker-state-change-manual=True' /tmp/ib-worker-lifecycle-smoke.txt
+  grep -Fx 'worker-stale-attachment-rejected=True' /tmp/ib-worker-lifecycle-smoke.txt
+  grep -Fx 'worker-attempt-limit=True' /tmp/ib-worker-lifecycle-smoke.txt
+  grep -Fx 'worker-process-identity=True' /tmp/ib-worker-lifecycle-smoke.txt
+
   cd "$repository_root"
   sh -n lib/durable_object_store.grease
   sh -n tests/test_durable_object_store.grease
   sh tests/test_durable_object_store.grease
+  sh -n lib/android_longview_worker.grease
+  sh -n bin/ib_android_longview_worker.grease
+  sh -n bin/accept_android_longview_worker.grease
+  sh -n tests/test_android_longview_worker.grease
+  sh tests/test_android_longview_worker.grease
 }
 
 exercise_workbench() {

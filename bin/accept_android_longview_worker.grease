@@ -1,0 +1,87 @@
+#!/usr/bin/env grease
+set -eu
+
+case $0 in
+  */*) script_directory=${0%/*} ;;
+  *) script_directory=. ;;
+esac
+repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
+. "$repository_root/lib/android_shizuku_host.grease"
+. "$repository_root/lib/android_longview_worker.grease"
+
+usage() {
+  printf 'usage: %s immediate|kill\n' "$0" >&2
+}
+
+mode=${1:-}
+case "$mode" in
+  immediate|kill) ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
+
+source_head=$(git -C "$repository_root" rev-parse HEAD)
+short_head=$(printf '%s' "$source_head" | cut -c 1-12)
+authority=$(ib_shizuku_authority)
+identity=$(ib_shizuku_identity)
+
+if test "$mode" = immediate; then
+  work_id=physical-$short_head
+  result_id=physical-$short_head-result
+  worker_mode=immediate
+else
+  work_id=physical-kill-$short_head
+  result_id=physical-kill-$short_head-result
+  worker_mode=delayed
+fi
+
+worker_receipt=$(ib_longview_worker_start "$work_id" "$result_id" "$worker_mode")
+tab=$(printf '\t')
+IFS="$tab" read -r receipt_kind worker_pid worker_start worker_name <<EOF_RECEIPT
+$worker_receipt
+EOF_RECEIPT
+
+test "$receipt_kind" = worker
+ib_shizuku_validate_pid "$worker_pid"
+ib_shizuku_validate_start_ticks "$worker_start"
+ib_shizuku_validate_process_name "$worker_name"
+
+printf 'schema\tib-longview-worker-physical-receipt-v1\n'
+printf 'source_head\t%s\n' "$source_head"
+printf 'authority\t%s\n' "$authority"
+printf 'work_id\t%s\n' "$work_id"
+printf 'result_id\t%s\n' "$result_id"
+printf 'worker_pid\t%s\n' "$worker_pid"
+printf 'worker_start_ticks\t%s\n' "$worker_start"
+printf 'worker_name\t%s\n' "$worker_name"
+printf '%s\n' "$identity" | while IFS= read -r line; do
+  printf 'remote_identity\t%s\n' "$line"
+done
+
+if test "$mode" = kill; then
+  before=$(ib_longview_worker_observe     "$work_id" "$result_id" "$worker_pid" "$worker_start" "$worker_name")
+  printf 'observation_before_signal\t%s\n' "$before"
+  ib_shizuku_signal_owned     "$worker_pid" "$worker_start" "$worker_name" TERM
+  sleep 1
+  after=$(ib_longview_worker_observe     "$work_id" "$result_id" "$worker_pid" "$worker_start" "$worker_name")
+  printf 'observation_after_signal\t%s\n' "$after"
+  exit 0
+fi
+
+# This fixture performs only a tiny deterministic write. One bounded pause
+# avoids a hot rish/ps polling loop while still giving the background worker a
+# chance to publish before the late-read check.
+sleep 1
+observation=$(ib_longview_worker_observe   "$work_id" "$result_id" "$worker_pid" "$worker_start" "$worker_name")
+printf 'observation\t%s\n' "$observation"
+test "$observation" = committed
+
+result=$(ib_longview_worker_read_result "$result_id")
+printf '%s\n' "$result" | grep -Fx   "$(printf 'schema\tib-longview-worker-result-v1')" >/dev/null
+printf '%s\n' "$result" | grep -Fx   "$(printf 'work_id\t%s' "$work_id")" >/dev/null
+printf '%s\n' "$result" | grep -Fx   "$(printf 'result_id\t%s' "$result_id")" >/dev/null
+printf '%s\n' "$result" | grep -Fx   "$(printf 'value\tdeterministic-ok')" >/dev/null
+
+printf 'result_begin\n%s\nresult_end\n' "$result"
