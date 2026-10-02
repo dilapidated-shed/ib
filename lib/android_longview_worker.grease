@@ -149,3 +149,58 @@ test \"\$bytes\" -le 256 || exit 69
 cat \"\$final\""
   ib_shizuku_run_bounded 5 "$command_text"
 }
+
+
+ib_longview_worker_observe() {
+  if test "$#" -ne 5; then
+    printf '%s\n' 'ib_longview_worker_observe expects WORK_ID RESULT_ID PID START_TICKS PROCESS_NAME' >&2
+    return 2
+  fi
+  work_id=$1
+  result_id=$2
+  pid=$3
+  start_ticks=$4
+  process_name=$5
+
+  ib_longview_worker_validate_atom "$work_id" || return 2
+  ib_longview_worker_validate_atom "$result_id" || return 2
+  ib_shizuku_validate_pid "$pid" || return 2
+  ib_shizuku_validate_start_ticks "$start_ticks" || return 2
+  ib_shizuku_validate_process_name "$process_name" || return 2
+
+  command_text="# IB_LONGVIEW_WORKER_OBSERVE_V1
+set -eu
+root=/data/local/tmp/ib-longview-fixture-v1
+backend=android-shizuku-shell-v1
+work=$work_id
+result=$result_id
+pid=$pid
+expected_start=$start_ticks
+expected_name=$process_name
+marker=\"\$root/.ib-backend-id\"
+test -f \"\$marker\" || exit 67
+test \"\$(cat \"\$marker\")\" = \"\$backend\" || exit 67
+final=\"\$root/objects/\$result\"
+if test -f \"\$final\"; then
+  bytes=\$(wc -c <\"\$final\" | tr -d '[:space:]')
+  test \"\$bytes\" -le 256 || exit 69
+  printf 'committed\\n'
+  exit 0
+fi
+stat=/proc/\$pid/stat
+comm=/proc/\$pid/comm
+if test -r \"\$stat\" && test -r \"\$comm\"; then
+  tail=\$(sed 's/^[0-9][0-9]* (.*) //' \"\$stat\") || exit 44
+  observed_start=\$(printf '%s\\n' \"\$tail\" | awk '{print \$20}')
+  observed_name=\$(tr -d '\\r\\n' <\"\$comm\")
+  if test \"\$observed_start\" = \"\$expected_start\" &&
+     test \"\$observed_name\" = \"\$expected_name\"; then
+    printf 'running\\n'
+  else
+    printf 'gone-uncommitted\\n'
+  fi
+else
+  printf 'gone-uncommitted\\n'
+fi"
+  ib_shizuku_run_bounded 5 "$command_text"
+}
