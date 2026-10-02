@@ -17,8 +17,8 @@ The browser-owned worker record separates:
 A process attachment contains PID, process start ticks, process name and host
 generation. None of those replaces work or result identity.
 
-A frontend or initiating rish caller disconnect does not mutate the durable
-worker task. A process may disappear while the task and any committed result
+A frontend or initiating Binder-provider caller disconnect does not mutate the
+durable worker task. A process may disappear while the task and any committed result
 remain.
 
 ## Recovery policy
@@ -27,8 +27,8 @@ The first policy is deliberately conservative:
 
 - a committed result is never replayed merely because the worker later exits;
 - a bounded observation may be automatically restarted while attempts remain;
-- unavailable Shizuku authority waits for authority rather than becoming
-  success;
+- unavailable privileged Binder authority waits for authority rather than
+  becoming success; the selected provider today is Shizuku;
 - a state-changing/nonreplayable operation requires manual recovery rather than
   automatic replay.
 
@@ -50,10 +50,11 @@ fault-injection target.
 
 ## First Android fixture
 
-`lib/android_longview_worker.grease` starts only a fixed reviewed operation.
-The only interpolated fields are validated work/result atoms and a selected
-immediate/delayed test mode. Page text, model output, downloaded scripts and
-arbitrary shell command strings cannot become worker programs.
+`lib/android_longview_worker.grease` is Binder-facing: it validates the durable
+worker request and invokes Binder worker operations. The current Shizuku
+provider in `lib/android_shizuku_worker_provider.grease` lowers those operations
+to one fixed reviewed shell program. Page text, model output, downloaded
+scripts and arbitrary shell command strings cannot become worker programs.
 
 The fixture uses:
 
@@ -70,9 +71,10 @@ non-sensitive. It proves the shell worker lifecycle and the ordinary-file
 publication shape without pretending shell UID can read IB app-private files.
 It is not selected product storage.
 
-The worker publishes at most 256 bytes through stage -> sync -> same-filesystem
-rename -> sync and then marks its small status. A later rish invocation can
-read the immutable result independently of the launching caller. The same
+The current Shizuku worker publishes at most 256 bytes through stage -> sync ->
+same-filesystem rename -> sync and then marks its small status. A later Binder
+worker read can retrieve the immutable result independently of the launching
+caller; today that Binder operation is lowered through a later rish invocation. The same
 limitations documented for the ordinary shell store apply: this is not yet a
 fine-grained whole-device power-loss receipt.
 
@@ -83,9 +85,9 @@ ignored, then returns:
 worker<TAB>pid<TAB>start_ticks<TAB>process_name
 ```
 
-Whether that process actually survives rish disconnection, Shizuku restart,
-and the relevant Android lifecycle on the MIRO A1 remains **physical evidence
-to collect**. The code does not infer survival from desktop shell behavior.
+Whether that provider-owned process actually survives rish disconnection,
+Shizuku restart, and the relevant Android lifecycle on the MIRO A1 remains
+**physical evidence to collect for the current provider**. The code does not infer survival from desktop shell behavior.
 
 ## Physical acceptance still required
 
@@ -104,6 +106,7 @@ At one exact source head, test separately:
    general guarantee;
 8. stale PID/start-tick receipt cannot signal a different process.
 
-The provider/PFD/Binder/socket experiments still decide the eventual
-authorized UI/app-private live/late-reader boundary. This fixture does not
-retire them.
+The stacked live-PFD branch now supplies direct Android Binder/PFD evidence for
+an app-to-app live channel. That path does not require Shizuku. The current
+shell worker fixture remains only the privileged-worker provider and does not
+turn Shizuku into the Longview architecture.

@@ -1,0 +1,27 @@
+module IB.Binder
+
+-- Binder is the Android process/service boundary IB is designed around.
+-- The provider field records only how this installation currently obtains
+-- privileged Binder authority. Ordinary app-to-app Binder IPC does not need
+-- Shizuku. Browser and Longview semantics must not branch on the provider.
+
+public export
+choice binder_provider one_of
+  shizuku
+
+public export
+record BinderAccess where
+  constructor BinderVia
+  provider : binder_provider
+
+public export
+android_binder_access : BinderAccess
+android_binder_access = BinderVia shizuku
+
+public export
+binder_provider_text : binder_provider → String
+binder_provider_text shizuku = "shizuku"
+
+public export
+binder_access_provider_text : BinderAccess → String
+binder_access_provider_text access = binder_provider_text access.provider

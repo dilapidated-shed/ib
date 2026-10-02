@@ -1,35 +1,29 @@
-# Android host through Shizuku
+# Shizuku provider for the Android Binder host
 
 ## Current decision
 
-On experimental Android, IB may assume that the user starts Shizuku and makes
-`rish` available. IB does not need a separate Crawl Space privilege broker in
-front of Shizuku.
+Binder is IB's Android process/service architecture. Shizuku is the current
+provider used to obtain that Binder authority on stock experimental Android.
 
-Crawl Space remains available as a Shizuku-family fork/variant when IB or the
-phone OS needs a change that is better made below the host interface. It is not
-an additional mandatory hop.
+The canonical boundary is documented in `docs/android-binder-host.md`.
+Longview and browser semantics must depend on Binder capabilities rather than
+on Shizuku, `rish`, or shell command syntax.
+
+Crawl Space remains a possible later provider/variant. It is not an additional
+mandatory hop in front of Shizuku.
 
 ```text
-IB browser/task semantics
-          |
-          v
-Grease host/process work
-          |
-          v
-Shizuku rish today
-          |
-          v
-remote Android shell (normally UID 2000)
-          |
-          +--> Android commands/services
-          +--> processes
-          +--> /proc and other shell-visible state
+IB / Longview
+     |
+     v
+Binder capability boundary
+     |
+     v
+Shizuku provider today
+     |
+     +--> current rish/shell lowering
+     +--> direct Binder lowering as it is physically proved
 ```
-
-Linux, macOS, Windows, root Android, or a future Crawl Space system should
-implement the same host intentions without requiring the browser core to know
-about Shizuku.
 
 ## First implemented surface
 
@@ -59,7 +53,7 @@ than requiring an ADB session, then verify that the durable task survives the
 new host generation. The stop mechanism remains distinct from the durable task
 semantics being tested.
 
-## Why rish first
+## Current rish lowering
 
 Upstream rish is specifically a shell whose process is created by the
 high-privilege Shizuku/Sui daemon. It passes shell arguments to the remote
@@ -69,7 +63,7 @@ remotely.
 That makes it a useful first backend for IB process and operating-system work.
 If command startup or text parsing later becomes measurable overhead, a direct
 Shizuku Binder adapter can replace individual hot operations behind the same
-host boundary.
+Binder boundary.
 
 Long-running work should eventually use maintained remote workers rather than a
 large number of tiny `rish -c` calls. Those worker processes/threads remain

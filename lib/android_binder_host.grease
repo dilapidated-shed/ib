@@ -1,0 +1,80 @@
+# Grease source. Binder is IB's Android host/process contract. Shizuku is the
+# current provider of Binder authority on stock experimental devices.
+#
+# This file is deliberately tiny. Longview and other IB code call ib_binder_*
+# operations. The platform assembly currently loads android_shizuku_host.grease
+# first, and these functions lower the Binder contract through that provider.
+#
+# Replacing Shizuku later must not require changing Longview semantics.
+
+ib_binder_provider() {
+  printf '%s\n' 'shizuku'
+}
+
+ib_binder_authority() {
+  ib_shizuku_authority "$@"
+}
+
+ib_binder_identity() {
+  ib_shizuku_identity "$@"
+}
+
+ib_binder_process_snapshot() {
+  ib_shizuku_process_snapshot "$@"
+}
+
+ib_binder_validate_pid() {
+  ib_shizuku_validate_pid "$@"
+}
+
+ib_binder_validate_start_ticks() {
+  ib_shizuku_validate_start_ticks "$@"
+}
+
+ib_binder_validate_process_name() {
+  ib_shizuku_validate_process_name "$@"
+}
+
+ib_binder_process_identity() {
+  ib_shizuku_process_identity "$@"
+}
+
+ib_binder_signal_owned() {
+  ib_shizuku_signal_owned "$@"
+}
+
+ib_binder_package_pids() {
+  ib_shizuku_package_pids "$@"
+}
+
+ib_binder_force_stop_package() {
+  ib_shizuku_force_stop_package "$@"
+}
+
+# Worker lifecycle is expressed at the Binder boundary. The current provider
+# lowers these operations through Shizuku/rish; callers do not know that.
+ib_binder_worker_start() {
+  ib_shizuku_worker_start "$@"
+}
+
+ib_binder_worker_status() {
+  ib_shizuku_worker_status "$@"
+}
+
+ib_binder_worker_read_result() {
+  ib_shizuku_worker_read_result "$@"
+}
+
+ib_binder_worker_observe() {
+  ib_shizuku_worker_observe "$@"
+}
+
+# Capability observation is also selected through Binder. Provider-specific
+# provenance remains visible in the returned rows.
+ib_binder_capabilities_remote_snapshot() {
+  ib_shizuku_capabilities_remote_snapshot "$@"
+}
+
+ib_binder_capabilities_open_app_report() {
+  ib_shizuku_capabilities_open_app_report "$@"
+}

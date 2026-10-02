@@ -7,6 +7,8 @@ case $0 in
 esac
 repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
 . "$repository_root/lib/android_shizuku_host.grease"
+. "$repository_root/lib/android_shizuku_worker_provider.grease"
+. "$repository_root/lib/android_binder_host.grease"
 . "$repository_root/lib/android_longview_worker.grease"
 
 usage() {
@@ -24,8 +26,8 @@ esac
 
 source_head=$(git -C "$repository_root" rev-parse HEAD)
 short_head=$(printf '%s' "$source_head" | cut -c 1-12)
-authority=$(ib_shizuku_authority)
-identity=$(ib_shizuku_identity)
+authority=$(ib_binder_authority)
+identity=$(ib_binder_identity)
 
 if test "$mode" = immediate; then
   work_id=physical-$short_head
@@ -44,9 +46,9 @@ $worker_receipt
 EOF_RECEIPT
 
 test "$receipt_kind" = worker
-ib_shizuku_validate_pid "$worker_pid"
-ib_shizuku_validate_start_ticks "$worker_start"
-ib_shizuku_validate_process_name "$worker_name"
+ib_binder_validate_pid "$worker_pid"
+ib_binder_validate_start_ticks "$worker_start"
+ib_binder_validate_process_name "$worker_name"
 
 printf 'schema\tib-longview-worker-physical-receipt-v1\n'
 printf 'source_head\t%s\n' "$source_head"
@@ -63,7 +65,7 @@ done
 if test "$mode" = kill; then
   before=$(ib_longview_worker_observe     "$work_id" "$result_id" "$worker_pid" "$worker_start" "$worker_name")
   printf 'observation_before_signal\t%s\n' "$before"
-  ib_shizuku_signal_owned     "$worker_pid" "$worker_start" "$worker_name" TERM
+  ib_binder_signal_owned     "$worker_pid" "$worker_start" "$worker_name" TERM
   sleep 1
   after=$(ib_longview_worker_observe     "$work_id" "$result_id" "$worker_pid" "$worker_start" "$worker_name")
   printf 'observation_after_signal\t%s\n' "$after"

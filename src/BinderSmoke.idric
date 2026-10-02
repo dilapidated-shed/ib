@@ -1,0 +1,7 @@
+module Main
+
+import IB.Binder
+
+main : IO ()
+main =
+  putStrLn ("binder-provider=" ++ binder_access_provider_text android_binder_access)

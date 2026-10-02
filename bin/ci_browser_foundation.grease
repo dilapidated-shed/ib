@@ -126,6 +126,14 @@ exercise_core() {
   grep -Fx 'work-bounds-dishonest-length=True' /tmp/ib-work-bounds-smoke.txt
   grep -Fx 'work-bounds-negative=True' /tmp/ib-work-bounds-smoke.txt
 
+  "$idric_prefix/bin/idris2" BinderSmoke.idric \
+    -o ib-binder-smoke \
+    2>&1 | tee /tmp/idric-binder-compile.txt
+  test -x ./build/exec/ib-binder-smoke
+  ! grep -q '^Error:' /tmp/idric-binder-compile.txt
+  ./build/exec/ib-binder-smoke | tee /tmp/ib-binder-smoke.txt
+  grep -Fx 'binder-provider=shizuku' /tmp/ib-binder-smoke.txt
+
   "$idric_prefix/bin/idris2" WorkerLifecycleSmoke.idric \
     -o ib-worker-lifecycle-smoke \
     2>&1 | tee /tmp/idric-worker-lifecycle-compile.txt
@@ -145,6 +153,16 @@ exercise_core() {
   sh -n lib/durable_object_store.grease
   sh -n tests/test_durable_object_store.grease
   sh tests/test_durable_object_store.grease
+  sh -n lib/android_shizuku_worker_provider.grease
+  sh -n lib/android_shizuku_capabilities_provider.grease
+  sh -n lib/android_binder_host.grease
+  sh -n bin/ib_android_binder.grease
+  sh -n tests/test_android_binder_host.grease
+  sh tests/test_android_binder_host.grease
+  sh -n lib/android_device_capabilities.grease
+  sh -n bin/ib_android_capabilities.grease
+  sh -n tests/test_android_device_capabilities.grease
+  sh tests/test_android_device_capabilities.grease
   sh -n lib/android_longview_worker.grease
   sh -n bin/ib_android_longview_worker.grease
   sh -n bin/accept_android_longview_worker.grease
