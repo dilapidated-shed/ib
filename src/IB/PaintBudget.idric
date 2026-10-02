@@ -1,0 +1,60 @@
+module IB.PaintBudget
+
+public export
+data Milliseconds = Ms Number
+
+public export
+milliseconds : Number → Milliseconds
+milliseconds value = Ms value
+
+public export
+milliseconds_value : Milliseconds → Number
+milliseconds_value (Ms value) = value
+
+public export
+record PaintEstimate where
+  constructor Estimate
+  full_fidelity_time : Milliseconds
+  reduced_fidelity_time : Maybe Milliseconds
+
+public export
+record PaintBudget where
+  constructor Budget
+  remaining_time : Milliseconds
+  previous_paint_available : Bool
+
+public export
+choice paint_action one_of
+  full_fidelity_paint
+  reduced_fidelity_paint
+  reuse_previous_paint
+  defer_visual_paint
+
+fits_time : Milliseconds → Milliseconds → Bool
+fits_time (Ms expected) (Ms available) = expected <= available
+
+fallback_action : Bool → paint_action
+fallback_action True = reuse_previous_paint
+fallback_action False = defer_visual_paint
+
+public export
+select_paint : PaintBudget → PaintEstimate → paint_action
+select_paint (Budget remaining previous_available) (Estimate full reduced) =
+  if fits_time full remaining
+    then full_fidelity_paint
+    else
+      case reduced of
+        Just reduced_time ⇒
+          if fits_time reduced_time remaining
+            then reduced_fidelity_paint
+            else fallback_action previous_available
+        Nothing ⇒ fallback_action previous_available
+
+-- Produced only after an actual paint.  It is feedback for a replaceable
+-- estimator, not canonical browser state.
+public export
+record PaintObservation where
+  constructor Observation
+  performed_action : paint_action
+  predicted_time : Milliseconds
+  actual_time : Milliseconds

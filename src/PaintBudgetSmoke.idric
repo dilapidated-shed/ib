@@ -1,0 +1,43 @@
+module PaintBudgetSmoke
+
+import IB.PaintBudget
+import IB.PaintBudget.Mock
+import System
+
+is_full : paint_action → Bool
+is_full full_fidelity_paint = True
+is_full _ = False
+
+is_reduced : paint_action → Bool
+is_reduced reduced_fidelity_paint = True
+is_reduced _ = False
+
+is_reuse : paint_action → Bool
+is_reuse reuse_previous_paint = True
+is_reuse _ = False
+
+is_deferred : paint_action → Bool
+is_deferred defer_visual_paint = True
+is_deferred _ = False
+
+main : IO ()
+main = do
+  let reusable_budget = Budget (milliseconds 12) True
+  let blank_budget = Budget (milliseconds 12) False
+  let cheap = select_paint reusable_budget (mock_estimate small_text)
+  let reduced = select_paint reusable_budget (mock_estimate expensive_effect)
+  let reused = select_paint reusable_budget (mock_estimate pathological_effect)
+  let deferred = select_paint blank_budget (mock_estimate pathological_effect)
+  let cheap_ok = is_full cheap
+  let reduced_ok = is_reduced reduced
+  let reused_ok = is_reuse reused
+  let deferred_ok = is_deferred deferred
+
+  putStrLn ("paint-budget-cheap-full=" ++ show cheap_ok)
+  putStrLn ("paint-budget-expensive-reduced=" ++ show reduced_ok)
+  putStrLn ("paint-budget-pathological-reused=" ++ show reused_ok)
+  putStrLn ("paint-budget-pathological-deferred=" ++ show deferred_ok)
+
+  if cheap_ok && reduced_ok && reused_ok && deferred_ok
+    then pure ()
+    else exitFailure
