@@ -184,6 +184,8 @@ final=\"\$root/objects/\$result\"
 if test -f \"\$final\"; then
   bytes=\$(wc -c <\"\$final\" | tr -d '[:space:]')
   test \"\$bytes\" -le 256 || exit 69
+  grep -F -x \"\$(printf 'work_id\\t%s' \"\$work\")\" \"\$final\" >/dev/null || exit 70
+  grep -F -x \"\$(printf 'result_id\\t%s' \"\$result\")\" \"\$final\" >/dev/null || exit 70
   printf 'committed\\n'
   exit 0
 fi
