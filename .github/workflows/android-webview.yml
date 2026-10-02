@@ -145,16 +145,15 @@ jobs:
             grep -o 'provider_pid=[0-9][0-9]*' /tmp/ib-durable-result-reader.tsv | tail -1 | cut -d= -f2 > /tmp/ib-provider-pid-before
             printf '%s\n' 'PASS: cross-UID provider returned two complete independent descriptors.'
 
-            provider_pid="$(cat /tmp/ib-provider-pid-before)"
-            test -n "$provider_pid"
-            adb shell run-as org.isomorphisms.ib.webview /system/bin/kill "$provider_pid"
+            test -s /tmp/ib-provider-pid-before
+            adb shell run-as org.isomorphisms.ib.webview /system/bin/kill "$(cat /tmp/ib-provider-pid-before)"
             for attempt in 1 2 3 4 5 6 7 8 9 10; do
               current_pid="$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')"
-              test "$current_pid" != "$provider_pid" && break
+              test "$current_pid" != "$(cat /tmp/ib-provider-pid-before)" && break
               sleep 1
             done
-            test "$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')" != "$provider_pid"
-            printf '%s\n' "PASS: IB provider host PID $provider_pid terminated."
+            test "$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')" != "$(cat /tmp/ib-provider-pid-before)"
+            printf 'PASS: IB provider host PID %s terminated.\n' "$(cat /tmp/ib-provider-pid-before)"
             adb shell am start -W -a android.intent.action.VIEW -d content://org.isomorphisms.ib.webview.results/result/hello-v1 -n org.isomorphisms.ib.resultreader/.ResultReaderActivity
             sleep 1
             adb shell run-as org.isomorphisms.ib.resultreader cat files/durable-result-reader.tsv | tr -d '\r' | tee /tmp/ib-durable-result-reader-after-host-death.tsv
