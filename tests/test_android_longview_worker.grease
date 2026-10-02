@@ -1,0 +1,123 @@
+#!/usr/bin/env grease
+set -eu
+
+case $0 in
+  */*) script_directory=${0%/*} ;;
+  *) script_directory=. ;;
+esac
+repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
+. "$repository_root/lib/android_shizuku_host.grease"
+. "$repository_root/lib/android_longview_worker.grease"
+
+work=$(mktemp -d)
+cleanup() {
+  rm -rf "$work"
+}
+trap cleanup EXIT HUP INT TERM
+
+fake_rish="$work/rish"
+fake_state="$work/state"
+mkdir "$fake_state"
+export FAKE_WORKER_STATE="$fake_state"
+
+cat >"$fake_rish" <<'FAKE_RISH'
+#!/bin/sh
+set -eu
+if test "$#" -ne 2 || test "$1" != '-c'; then
+  exit 91
+fi
+command_text=$2
+
+case "$command_text" in
+  *IB_LONGVIEW_WORKER_START_V1*)
+    work_id=$(printf '%s\n' "$command_text" | sed -n 's/^work=//p')
+    result_id=$(printf '%s\n' "$command_text" | sed -n 's/^result=//p')
+    delay=$(printf '%s\n' "$command_text" | sed -n 's/^delay=//p')
+    test -n "$work_id"
+    test -n "$result_id"
+    if test "$delay" = 0; then
+      {
+        printf 'schema\tib-longview-worker-result-v1\n'
+        printf 'work_id\t%s\n' "$work_id"
+        printf 'result_id\t%s\n' "$result_id"
+        printf 'value\tdeterministic-ok\n'
+      } >"$FAKE_WORKER_STATE/result-$result_id"
+      printf 'committed\n' >"$FAKE_WORKER_STATE/status-$work_id"
+      printf 'worker\t123\t999\tsh\n'
+    else
+      printf 'running\n' >"$FAKE_WORKER_STATE/status-$work_id"
+      printf 'worker\t124\t1000\tsh\n'
+    fi
+    ;;
+  *IB_LONGVIEW_WORKER_STATUS_V1*)
+    work_id=$(printf '%s\n' "$command_text" | sed -n 's/^work=//p')
+    test -f "$FAKE_WORKER_STATE/status-$work_id" || exit 68
+    cat "$FAKE_WORKER_STATE/status-$work_id"
+    ;;
+  *IB_LONGVIEW_WORKER_READ_V1*)
+    result_id=$(printf '%s\n' "$command_text" | sed -n 's/^result=//p')
+    test -f "$FAKE_WORKER_STATE/result-$result_id" || exit 68
+    cat "$FAKE_WORKER_STATE/result-$result_id"
+    ;;
+  *'expected_start=1000'*'expected_name=sh'*'kill -TERM'*)
+    printf 'killed\n' >"$FAKE_WORKER_STATE/status-work-delayed"
+    ;;
+  *)
+    printf 'unexpected fake worker command\n' >&2
+    exit 92
+    ;;
+esac
+FAKE_RISH
+chmod +x "$fake_rish"
+export IB_RISH_COMMAND="$fake_rish"
+
+receipt=$(ib_longview_worker_start work-1 result-1 immediate)
+test "$receipt" = "$(printf 'worker\t123\t999\tsh')"
+test "$(ib_longview_worker_status work-1)" = committed
+
+first="$work/read-1"
+second="$work/read-2"
+ib_longview_worker_read_result result-1 >"$first"
+ib_longview_worker_read_result result-1 >"$second"
+cmp "$first" "$second"
+grep -Fx "$(printf 'schema\tib-longview-worker-result-v1')" "$first" >/dev/null
+grep -Fx "$(printf 'work_id\twork-1')" "$first" >/dev/null
+grep -Fx "$(printf 'value\tdeterministic-ok')" "$first" >/dev/null
+
+# A later reader is independent of the initiating rish invocation.
+receipt_again=$(ib_longview_worker_start work-1 result-1 immediate)
+test "$receipt_again" = "$(printf 'worker\t123\t999\tsh')"
+ib_longview_worker_read_result result-1 >"$work/read-after-new-caller"
+cmp "$first" "$work/read-after-new-caller"
+
+# Missing Shizuku authority is a failure, not silent success; restoring the
+# authority leaves the already committed result readable.
+saved_rish=$IB_RISH_COMMAND
+IB_RISH_COMMAND="$work/not-executable"
+export IB_RISH_COMMAND
+if ib_longview_worker_read_result result-1 >"$work/unavailable.out" 2>"$work/unavailable.err"; then
+  printf 'missing Shizuku authority became success\n' >&2
+  exit 1
+fi
+IB_RISH_COMMAND=$saved_rish
+export IB_RISH_COMMAND
+ib_longview_worker_read_result result-1 >"$work/read-after-authority"
+cmp "$first" "$work/read-after-authority"
+
+# Delayed work yields an owned process receipt. Kill requires both PID and
+# process start identity; no PID-only signal path exists.
+delayed=$(ib_longview_worker_start work-delayed result-delayed delayed)
+test "$delayed" = "$(printf 'worker\t124\t1000\tsh')"
+test "$(ib_longview_worker_status work-delayed)" = running
+ib_shizuku_signal_owned 124 1000 sh TERM
+test "$(ib_longview_worker_status work-delayed)" = killed
+
+before=$(wc -c <"$first")
+if ib_longview_worker_start 'work;bad' result-x immediate >/dev/null 2>&1; then
+  printf 'unsafe work id was accepted\n' >&2
+  exit 1
+fi
+after=$(wc -c <"$first")
+test "$before" -eq "$after"
+
+printf '%s\n' 'android Longview worker fixture tests: ok'
