@@ -68,24 +68,36 @@ jobs:
             -alias "$IB_TEST_KEY_ALIAS" \
             | grep -F "SHA256: $IB_EXPECTED_CERT_SHA256"
 
-      - name: Test, lint, and build debug APK
-        run: gradle --no-daemon :app:testDebugUnitTest :app:lintDebug :app:verifyWebViewBoundary
+      - name: Test, lint, and build debug APKs
+        run: |
+          gradle --no-daemon \
+            :app:testDebugUnitTest \
+            :app:lintDebug \
+            :app:verifyWebViewBoundary \
+            :result-reader:lintDebug \
+            :result-reader:verifyResultReaderBoundary
 
-      - name: Verify APK signer
+      - name: Verify APK signers
         shell: bash
         run: |
           set -euo pipefail
           sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
-          apk=app/build/outputs/apk/debug/app-debug.apk
-          "$sdk_root/build-tools/36.0.0/apksigner" verify --print-certs "$apk" \
-            | tee /tmp/ib-webview-signing.txt
           expected="$(printf '%s' "$IB_EXPECTED_CERT_SHA256" | tr '[:upper:]' '[:lower:]' | tr -d ':')"
-          grep -Fq "Signer #1 certificate SHA-256 digest: $expected" /tmp/ib-webview-signing.txt
+          for apk in \
+            app/build/outputs/apk/debug/app-debug.apk \
+            result-reader/build/outputs/apk/debug/result-reader-debug.apk
+          do
+            "$sdk_root/build-tools/36.0.0/apksigner" verify --print-certs "$apk" \
+              | tee /tmp/ib-apk-signing.txt
+            grep -Fq "Signer #1 certificate SHA-256 digest: $expected" /tmp/ib-apk-signing.txt
+          done
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: ib-webview-protected-transaction-apk
-          path: android-webview/app/build/outputs/apk/debug/app-debug.apk
+          name: ib-durable-result-provider-apks
+          path: |
+            android-webview/app/build/outputs/apk/debug/app-debug.apk
+            android-webview/result-reader/build/outputs/apk/debug/result-reader-debug.apk
 
   replacement-install:
     needs: build-apk
@@ -93,10 +105,10 @@ jobs:
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: ib-webview-protected-transaction-apk
+          name: ib-durable-result-provider-apks
           path: downloaded-apk
 
-      - name: Install and replace twice without uninstall
+      - name: Install both packages and replace without uninstall
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         with:
           api-level: 29
@@ -104,7 +116,51 @@ jobs:
           profile: pixel_2
           disable-animations: true
           script: |
-            set -eu
-            adb install -r downloaded-apk/app-debug.apk
-            adb install -r downloaded-apk/app-debug.apk
-            adb install -r downloaded-apk/app-debug.apk
+            test -f downloaded-apk/app/build/outputs/apk/debug/app-debug.apk
+            test -f downloaded-apk/result-reader/build/outputs/apk/debug/result-reader-debug.apk
+            adb install -r downloaded-apk/app/build/outputs/apk/debug/app-debug.apk
+            adb install -r downloaded-apk/result-reader/build/outputs/apk/debug/result-reader-debug.apk
+            adb install -r downloaded-apk/app/build/outputs/apk/debug/app-debug.apk
+            adb install -r downloaded-apk/result-reader/build/outputs/apk/debug/result-reader-debug.apk
+
+            test -n "$(adb shell dumpsys package org.isomorphisms.ib.webview | sed -n 's/.*userId=\([0-9][0-9]*\).*/\1/p' | head -1 | tr -d '\r')"
+            test -n "$(adb shell dumpsys package org.isomorphisms.ib.resultreader | sed -n 's/.*userId=\([0-9][0-9]*\).*/\1/p' | head -1 | tr -d '\r')"
+            test "$(adb shell dumpsys package org.isomorphisms.ib.webview | sed -n 's/.*userId=\([0-9][0-9]*\).*/\1/p' | head -1 | tr -d '\r')" != "$(adb shell dumpsys package org.isomorphisms.ib.resultreader | sed -n 's/.*userId=\([0-9][0-9]*\).*/\1/p' | head -1 | tr -d '\r')"
+            printf '%s\n' 'PASS: IB and result reader have distinct Android UIDs.'
+
+            adb shell am start -W -n org.isomorphisms.ib.webview/.DurableResultFixtureActivity
+            sleep 1
+            adb shell am start -W -a android.intent.action.VIEW -d content://org.isomorphisms.ib.webview.results/result/hello-v1 --ez read_twice true -n org.isomorphisms.ib.resultreader/.ResultReaderActivity
+            sleep 1
+
+            adb shell run-as org.isomorphisms.ib.resultreader cat files/durable-result-reader.tsv | tr -d '\r' | tee /tmp/ib-durable-result-reader.tsv
+            grep -F 'caller-shim=separate-android-app' /tmp/ib-durable-result-reader.tsv
+            grep -F 'independent-complete=true' /tmp/ib-durable-result-reader.tsv
+            grep -F 'first=hello\n second=hello\n' /tmp/ib-durable-result-reader.tsv
+            grep -F "provider_uid=$(adb shell dumpsys package org.isomorphisms.ib.webview | sed -n 's/.*userId=\([0-9][0-9]*\).*/\1/p' | head -1 | tr -d '\r')" /tmp/ib-durable-result-reader.tsv
+            grep -F "calling_uid=$(adb shell dumpsys package org.isomorphisms.ib.resultreader | sed -n 's/.*userId=\([0-9][0-9]*\).*/\1/p' | head -1 | tr -d '\r')" /tmp/ib-durable-result-reader.tsv
+            grep -F 'calling_package=org.isomorphisms.ib.resultreader' /tmp/ib-durable-result-reader.tsv
+            grep -o 'provider_generation=[0-9][0-9]*' /tmp/ib-durable-result-reader.tsv | tail -1 > /tmp/ib-provider-generation-before
+            grep -o 'provider_process_id=provider-[^,[:space:]]*' /tmp/ib-durable-result-reader.tsv | tail -1 > /tmp/ib-provider-process-before
+            grep -o 'provider_pid=[0-9][0-9]*' /tmp/ib-durable-result-reader.tsv | tail -1 | cut -d= -f2 > /tmp/ib-provider-pid-before
+            printf '%s\n' 'PASS: cross-UID provider returned two complete independent descriptors.'
+
+            provider_pid="$(cat /tmp/ib-provider-pid-before)"
+            test -n "$provider_pid"
+            adb shell run-as org.isomorphisms.ib.webview /system/bin/kill "$provider_pid"
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              current_pid="$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')"
+              test "$current_pid" != "$provider_pid" && break
+              sleep 1
+            done
+            test "$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')" != "$provider_pid"
+            printf '%s\n' "PASS: IB provider host PID $provider_pid terminated."
+            adb shell am start -W -a android.intent.action.VIEW -d content://org.isomorphisms.ib.webview.results/result/hello-v1 -n org.isomorphisms.ib.resultreader/.ResultReaderActivity
+            sleep 1
+            adb shell run-as org.isomorphisms.ib.resultreader cat files/durable-result-reader.tsv | tr -d '\r' | tee /tmp/ib-durable-result-reader-after-host-death.tsv
+            grep -F 'reason=launch bytes=6 payload=hello\n' /tmp/ib-durable-result-reader-after-host-death.tsv
+            grep -o 'provider_generation=[0-9][0-9]*' /tmp/ib-durable-result-reader-after-host-death.tsv | tail -1 > /tmp/ib-provider-generation-after
+            grep -o 'provider_process_id=provider-[^,[:space:]]*' /tmp/ib-durable-result-reader-after-host-death.tsv | tail -1 > /tmp/ib-provider-process-after
+            test "$(cat /tmp/ib-provider-generation-before)" != "$(cat /tmp/ib-provider-generation-after)"
+            test "$(cat /tmp/ib-provider-process-before)" != "$(cat /tmp/ib-provider-process-after)"
+            printf '%s\n' 'PASS: late reader recovered the same durable result after IB host death through a new provider generation.'
