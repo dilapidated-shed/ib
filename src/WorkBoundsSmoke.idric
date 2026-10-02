@@ -41,36 +41,36 @@ limits =
 
 main : IO ()
 main = do
-  let first_chunk = admit_work_delta limits zero_usage (raw_chunk 6)
-  let raw_bounded =
+  let first_chunk : Maybe WorkUsage = admit_work_delta limits zero_usage (raw_chunk 6)
+  let raw_bounded : Bool =
         case first_chunk of
           Nothing ⇒ False
           Just usage ⇒
             is_raw_limit
               (first_work_bound_failure limits usage (raw_chunk 5))
-  let expansion_bounded =
+  let expansion_bounded : Bool =
         case admit_work_delta limits zero_usage (expanded_chunk 18) of
           Nothing ⇒ False
           Just usage ⇒
             is_expanded_limit
               (first_work_bound_failure limits usage (expanded_chunk 3))
-  let diagnostics_bounded =
+  let diagnostics_bounded : Bool =
         case admit_work_delta limits zero_usage (diagnostic_chunk 4) of
           Nothing ⇒ False
           Just usage ⇒
             is_diagnostic_limit
               (first_work_bound_failure limits usage (diagnostic_chunk 1))
-  let pixels_bounded =
+  let pixels_bounded : Bool =
         is_pixel_limit
           (first_work_bound_failure limits zero_usage (decoded_image 101 1))
-  let concurrency_bounded =
+  let concurrency_bounded : Bool =
         case admit_work_delta limits zero_usage (concurrency_delta 2 2 1) of
           Nothing ⇒ False
           Just usage ⇒
             is_worker_limit
               (first_work_bound_failure
                 limits usage (concurrency_delta 0 1 0))
-  let dishonest_length_bounded =
+  let dishonest_length_bounded : Bool =
         case admit_work_delta limits zero_usage (raw_chunk 6) of
           Nothing ⇒ False
           Just usage_a ⇒
@@ -79,7 +79,7 @@ main = do
               Just usage_b ⇒
                 is_raw_limit
                   (first_work_bound_failure limits usage_b (raw_chunk 1))
-  let negative_rejected =
+  let negative_rejected : Bool =
         case first_work_bound_failure limits zero_usage (raw_chunk (-1)) of
           Just invalid_work_delta ⇒ True
           _ ⇒ False
