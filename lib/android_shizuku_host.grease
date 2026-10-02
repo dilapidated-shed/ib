@@ -97,21 +97,75 @@ ib_shizuku_process_snapshot() {
   ib_shizuku_run 'ps -A'
 }
 
-ib_shizuku_signal() {
-  if test "$#" -lt 1 || test "$#" -gt 2; then
-    ib_shizuku_fail 'ib_shizuku_signal expects PID and optional SIGNAL'
+ib_shizuku_validate_pid() {
+  if test "$#" -ne 1; then
+    ib_shizuku_fail 'ib_shizuku_validate_pid expects PID'
+    return 2
+  fi
+  case "$1" in
+    ''|*[!0-9]*|0|1)
+      ib_shizuku_fail "invalid pid: $1"
+      return 2
+      ;;
+  esac
+}
+
+ib_shizuku_validate_start_ticks() {
+  if test "$#" -ne 1; then
+    ib_shizuku_fail 'ib_shizuku_validate_start_ticks expects one value'
+    return 2
+  fi
+  case "$1" in
+    ''|*[!0-9]*)
+      ib_shizuku_fail "invalid process start identity: $1"
+      return 2
+      ;;
+  esac
+}
+
+ib_shizuku_validate_process_name() {
+  if test "$#" -ne 1; then
+    ib_shizuku_fail 'ib_shizuku_validate_process_name expects one value'
+    return 2
+  fi
+  case "$1" in
+    ''|*[!A-Za-z0-9._:+-]*)
+      ib_shizuku_fail "invalid process name: $1"
+      return 2
+      ;;
+  esac
+}
+
+ib_shizuku_process_identity() {
+  if test "$#" -ne 1; then
+    ib_shizuku_fail 'ib_shizuku_process_identity expects PID'
+    return 2
+  fi
+  pid=$1
+  ib_shizuku_validate_pid "$pid" || return 2
+
+  ib_shizuku_run "pid=$pid; stat=/proc/\$pid/stat; comm=/proc/\$pid/comm; test -r \"\$stat\" && test -r \"\$comm\" || exit 44; tail=\$(sed 's/^[0-9][0-9]* (.*) //' \"\$stat\") || exit 44; start=\$(printf '%s\\n' \"\$tail\" | awk '{print \$20}'); name=\$(tr -d '\\r\\n' <\"\$comm\"); test -n \"\$start\" && test -n \"\$name\" || exit 44; printf '%s\\t%s\\t%s\\n' \"\$pid\" \"\$start\" \"\$name\""
+}
+
+# A stale PID alone is never authority to signal a process. The caller must
+# supply the process start identity and comm value captured when that owned
+# process was launched/observed. The remote check and kill happen in one shell
+# invocation so PID reuse between a separate check and signal cannot silently
+# target an unrelated process.
+ib_shizuku_signal_owned() {
+  if test "$#" -lt 3 || test "$#" -gt 4; then
+    ib_shizuku_fail 'ib_shizuku_signal_owned expects PID START_TICKS PROCESS_NAME and optional SIGNAL'
     return 2
   fi
 
   pid=$1
-  signal=${2:-TERM}
+  expected_start=$2
+  expected_name=$3
+  signal=${4:-TERM}
 
-  case "$pid" in
-    ''|*[!0-9]*|0|1)
-      ib_shizuku_fail "invalid pid: $pid"
-      return 2
-      ;;
-  esac
+  ib_shizuku_validate_pid "$pid" || return 2
+  ib_shizuku_validate_start_ticks "$expected_start" || return 2
+  ib_shizuku_validate_process_name "$expected_name" || return 2
 
   case "$signal" in
     ''|*[!A-Za-z0-9]*)
@@ -120,7 +174,14 @@ ib_shizuku_signal() {
       ;;
   esac
 
-  ib_shizuku_run "kill -$signal $pid"
+  ib_shizuku_run "pid=$pid; expected_start=$expected_start; expected_name=$expected_name; stat=/proc/\$pid/stat; comm=/proc/\$pid/comm; test -r \"\$stat\" && test -r \"\$comm\" || exit 44; tail=\$(sed 's/^[0-9][0-9]* (.*) //' \"\$stat\") || exit 44; observed_start=\$(printf '%s\\n' \"\$tail\" | awk '{print \$20}'); observed_name=\$(tr -d '\\r\\n' <\"\$comm\"); test \"\$observed_start\" = \"\$expected_start\" || exit 45; test \"\$observed_name\" = \"\$expected_name\" || exit 46; kill -$signal \"\$pid\""
+}
+
+# Deliberately reject the old PID-only operation. Supervisor and test code must
+# use ib_shizuku_signal_owned so unrelated processes are not valid targets.
+ib_shizuku_signal() {
+  ib_shizuku_fail 'PID-only signaling is refused; use ib_shizuku_signal_owned with a recorded start identity'
+  return 2
 }
 
 ib_shizuku_validate_package_name() {
