@@ -39,51 +39,63 @@ limits =
     2
     2
 
+raw_bounded : Bool
+raw_bounded =
+  case admit_work_delta limits zero_usage (raw_chunk 6) of
+    Nothing ⇒ False
+    Just usage ⇒
+      is_raw_limit
+        (first_work_bound_failure limits usage (raw_chunk 5))
+
+expansion_bounded : Bool
+expansion_bounded =
+  case admit_work_delta limits zero_usage (expanded_chunk 18) of
+    Nothing ⇒ False
+    Just usage ⇒
+      is_expanded_limit
+        (first_work_bound_failure limits usage (expanded_chunk 3))
+
+diagnostics_bounded : Bool
+diagnostics_bounded =
+  case admit_work_delta limits zero_usage (diagnostic_chunk 4) of
+    Nothing ⇒ False
+    Just usage ⇒
+      is_diagnostic_limit
+        (first_work_bound_failure limits usage (diagnostic_chunk 1))
+
+pixels_bounded : Bool
+pixels_bounded =
+  is_pixel_limit
+    (first_work_bound_failure limits zero_usage (decoded_image 101 1))
+
+concurrency_bounded : Bool
+concurrency_bounded =
+  case admit_work_delta limits zero_usage (concurrency_delta 2 2 1) of
+    Nothing ⇒ False
+    Just usage ⇒
+      is_worker_limit
+        (first_work_bound_failure
+          limits usage (concurrency_delta 0 1 0))
+
+dishonest_length_bounded : Bool
+dishonest_length_bounded =
+  case admit_work_delta limits zero_usage (raw_chunk 6) of
+    Nothing ⇒ False
+    Just usage_a ⇒
+      case admit_work_delta limits usage_a (raw_chunk 4) of
+        Nothing ⇒ False
+        Just usage_b ⇒
+          is_raw_limit
+            (first_work_bound_failure limits usage_b (raw_chunk 1))
+
+negative_rejected : Bool
+negative_rejected =
+  case first_work_bound_failure limits zero_usage (raw_chunk (-1)) of
+    Just invalid_work_delta ⇒ True
+    _ ⇒ False
+
 main : IO ()
 main = do
-  let first_chunk = admit_work_delta limits zero_usage (raw_chunk 6)
-  let raw_bounded =
-        case first_chunk of
-          Nothing ⇒ False
-          Just usage ⇒
-            is_raw_limit
-              (first_work_bound_failure limits usage (raw_chunk 5))
-  let expansion_bounded =
-        case admit_work_delta limits zero_usage (expanded_chunk 18) of
-          Nothing ⇒ False
-          Just usage ⇒
-            is_expanded_limit
-              (first_work_bound_failure limits usage (expanded_chunk 3))
-  let diagnostics_bounded =
-        case admit_work_delta limits zero_usage (diagnostic_chunk 4) of
-          Nothing ⇒ False
-          Just usage ⇒
-            is_diagnostic_limit
-              (first_work_bound_failure limits usage (diagnostic_chunk 1))
-  let pixels_bounded =
-        is_pixel_limit
-          (first_work_bound_failure limits zero_usage (decoded_image 101 1))
-  let concurrency_bounded =
-        case admit_work_delta limits zero_usage (concurrency_delta 2 2 1) of
-          Nothing ⇒ False
-          Just usage ⇒
-            is_worker_limit
-              (first_work_bound_failure
-                limits usage (concurrency_delta 0 1 0))
-  let dishonest_length_bounded =
-        case admit_work_delta limits zero_usage (raw_chunk 6) of
-          Nothing ⇒ False
-          Just usage_a ⇒
-            case admit_work_delta limits usage_a (raw_chunk 4) of
-              Nothing ⇒ False
-              Just usage_b ⇒
-                is_raw_limit
-                  (first_work_bound_failure limits usage_b (raw_chunk 1))
-  let negative_rejected =
-        case first_work_bound_failure limits zero_usage (raw_chunk (-1)) of
-          Just invalid_work_delta ⇒ True
-          _ ⇒ False
-
   putStrLn ("work-bounds-raw=" ++ show raw_bounded)
   putStrLn ("work-bounds-expanded=" ++ show expansion_bounded)
   putStrLn ("work-bounds-diagnostics=" ++ show diagnostics_bounded)
