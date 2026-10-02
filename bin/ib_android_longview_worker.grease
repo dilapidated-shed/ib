@@ -42,6 +42,13 @@ case "$command" in
     }
     ib_longview_worker_read_result "$1"
     ;;
+  observe)
+    test "$#" -eq 5 || {
+      usage
+      exit 2
+    }
+    ib_longview_worker_observe "$1" "$2" "$3" "$4" "$5"
+    ;;
   *)
     usage
     exit 2
