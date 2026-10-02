@@ -1,0 +1,231 @@
+# Grease/POSIX-shell ordinary-file durable-object adapter for bounded Longview
+# acceptance. Browser policy decides whether a write is admitted before calling
+# this adapter. This adapter never chooses a fallback volume.
+
+IB_STORE_VOLUME_ABSENT=66
+IB_STORE_BACKEND_MISMATCH=67
+IB_STORE_OBJECT_ABSENT=68
+IB_STORE_LIMIT_EXCEEDED=69
+IB_STORE_OBJECT_CONFLICT=70
+IB_STORE_INVALID_INPUT=71
+IB_STORE_IO_FAILURE=72
+IB_STORE_SOURCE_CHANGED=73
+
+ib_store_valid_atom() {
+  if test "$#" -ne 1; then
+    return 1
+  fi
+  case "$1" in
+    ''|.|..|*[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-]*)
+      return 1
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
+ib_store_decimal_normalize() {
+  if test "$#" -ne 1; then
+    return "$IB_STORE_INVALID_INPUT"
+  fi
+  ib_store_decimal_value=$1
+  case "$ib_store_decimal_value" in
+    ''|*[!0123456789]*)
+      return "$IB_STORE_INVALID_INPUT"
+      ;;
+  esac
+  while test "${ib_store_decimal_value#0}" != "$ib_store_decimal_value"; do
+    ib_store_decimal_value=${ib_store_decimal_value#0}
+  done
+  test -n "$ib_store_decimal_value" || ib_store_decimal_value=0
+  printf '%s\n' "$ib_store_decimal_value"
+}
+
+# Decimal comparison without narrowing the values through shell arithmetic.
+ib_store_decimal_leq() {
+  if test "$#" -ne 2; then
+    return "$IB_STORE_INVALID_INPUT"
+  fi
+  ib_store_decimal_left=$(ib_store_decimal_normalize "$1") || return $?
+  ib_store_decimal_right=$(ib_store_decimal_normalize "$2") || return $?
+  ib_store_left_length=${#ib_store_decimal_left}
+  ib_store_right_length=${#ib_store_decimal_right}
+
+  if test "$ib_store_left_length" -lt "$ib_store_right_length"; then
+    return 0
+  fi
+  if test "$ib_store_left_length" -gt "$ib_store_right_length"; then
+    return 1
+  fi
+
+  ib_store_digit_index=1
+  while test "$ib_store_digit_index" -le "$ib_store_left_length"; do
+    ib_store_left_digit=$(printf '%s' "$ib_store_decimal_left" | cut -c "$ib_store_digit_index")
+    ib_store_right_digit=$(printf '%s' "$ib_store_decimal_right" | cut -c "$ib_store_digit_index")
+    if test "$ib_store_left_digit" -lt "$ib_store_right_digit"; then
+      return 0
+    fi
+    if test "$ib_store_left_digit" -gt "$ib_store_right_digit"; then
+      return 1
+    fi
+    ib_store_digit_index=$((ib_store_digit_index + 1))
+  done
+  return 0
+}
+
+ib_store_init() {
+  if test "$#" -ne 2; then
+    return "$IB_STORE_INVALID_INPUT"
+  fi
+  ib_store_root=$1
+  ib_store_backend=$2
+  ib_store_valid_atom "$ib_store_backend" || return "$IB_STORE_INVALID_INPUT"
+
+  if ! test -d "$ib_store_root"; then
+    printf 'volume-absent\n' >&2
+    return "$IB_STORE_VOLUME_ABSENT"
+  fi
+
+  if ! mkdir -p "$ib_store_root/.ib-staging" "$ib_store_root/objects"; then
+    return "$IB_STORE_IO_FAILURE"
+  fi
+
+  ib_store_marker="$ib_store_root/.ib-backend-id"
+  if test -f "$ib_store_marker"; then
+    ib_store_existing_backend=$(cat "$ib_store_marker") || return "$IB_STORE_IO_FAILURE"
+    if test "$ib_store_existing_backend" != "$ib_store_backend"; then
+      printf 'backend-mismatch expected=%s observed=%s\n' \
+        "$ib_store_backend" "$ib_store_existing_backend" >&2
+      return "$IB_STORE_BACKEND_MISMATCH"
+    fi
+    return 0
+  fi
+
+  ib_store_marker_tmp="$ib_store_root/.ib-backend-id.$$"
+  umask 077
+  if ! printf '%s\n' "$ib_store_backend" >"$ib_store_marker_tmp"; then
+    rm -f "$ib_store_marker_tmp"
+    return "$IB_STORE_IO_FAILURE"
+  fi
+  sync || {
+    rm -f "$ib_store_marker_tmp"
+    return "$IB_STORE_IO_FAILURE"
+  }
+  if ! mv "$ib_store_marker_tmp" "$ib_store_marker"; then
+    rm -f "$ib_store_marker_tmp"
+    return "$IB_STORE_IO_FAILURE"
+  fi
+  sync || return "$IB_STORE_IO_FAILURE"
+}
+
+ib_store_require_backend() {
+  if test "$#" -ne 2; then
+    return "$IB_STORE_INVALID_INPUT"
+  fi
+  ib_store_root=$1
+  ib_store_expected_backend=$2
+  ib_store_valid_atom "$ib_store_expected_backend" ||
+    return "$IB_STORE_INVALID_INPUT"
+
+  if ! test -d "$ib_store_root"; then
+    printf 'volume-absent\n' >&2
+    return "$IB_STORE_VOLUME_ABSENT"
+  fi
+  ib_store_marker="$ib_store_root/.ib-backend-id"
+  if ! test -f "$ib_store_marker"; then
+    printf 'backend-marker-missing\n' >&2
+    return "$IB_STORE_BACKEND_MISMATCH"
+  fi
+  ib_store_observed_backend=$(cat "$ib_store_marker") ||
+    return "$IB_STORE_IO_FAILURE"
+  if test "$ib_store_observed_backend" != "$ib_store_expected_backend"; then
+    printf 'backend-mismatch expected=%s observed=%s\n' \
+      "$ib_store_expected_backend" "$ib_store_observed_backend" >&2
+    return "$IB_STORE_BACKEND_MISMATCH"
+  fi
+}
+
+ib_store_publish_bounded() {
+  if test "$#" -ne 5; then
+    return "$IB_STORE_INVALID_INPUT"
+  fi
+  ib_store_root=$1
+  ib_store_backend=$2
+  ib_store_object=$3
+  ib_store_source=$4
+  ib_store_limit=$5
+
+  ib_store_valid_atom "$ib_store_object" || return "$IB_STORE_INVALID_INPUT"
+  ib_store_decimal_normalize "$ib_store_limit" >/dev/null ||
+    return "$IB_STORE_INVALID_INPUT"
+  test -f "$ib_store_source" || return "$IB_STORE_INVALID_INPUT"
+  ib_store_require_backend "$ib_store_root" "$ib_store_backend" || return $?
+
+  ib_store_source_bytes=$(wc -c <"$ib_store_source" | tr -d '[:space:]')
+  ib_store_decimal_normalize "$ib_store_source_bytes" >/dev/null ||
+    return "$IB_STORE_IO_FAILURE"
+  if ! ib_store_decimal_leq "$ib_store_source_bytes" "$ib_store_limit"; then
+    printf 'limit-exceeded bytes=%s limit=%s\n' \
+      "$ib_store_source_bytes" "$ib_store_limit" >&2
+    return "$IB_STORE_LIMIT_EXCEEDED"
+  fi
+
+  ib_store_tmp="$ib_store_root/.ib-staging/$ib_store_object.$$"
+  ib_store_final="$ib_store_root/objects/$ib_store_object"
+  rm -f "$ib_store_tmp"
+  umask 077
+  if ! cp "$ib_store_source" "$ib_store_tmp"; then
+    rm -f "$ib_store_tmp"
+    return "$IB_STORE_IO_FAILURE"
+  fi
+
+  ib_store_copied_bytes=$(wc -c <"$ib_store_tmp" | tr -d '[:space:]')
+  if test "$ib_store_copied_bytes" != "$ib_store_source_bytes"; then
+    rm -f "$ib_store_tmp"
+    printf 'source-changed expected=%s copied=%s\n' \
+      "$ib_store_source_bytes" "$ib_store_copied_bytes" >&2
+    return "$IB_STORE_SOURCE_CHANGED"
+  fi
+
+  if test -e "$ib_store_final"; then
+    if cmp -s "$ib_store_tmp" "$ib_store_final"; then
+      rm -f "$ib_store_tmp"
+      return 0
+    fi
+    rm -f "$ib_store_tmp"
+    printf 'object-conflict id=%s\n' "$ib_store_object" >&2
+    return "$IB_STORE_OBJECT_CONFLICT"
+  fi
+
+  # Staging is never readable through ib_store_read. sync requests durability
+  # before the same-filesystem rename; the second sync requests persistence of
+  # the publication. Fine-grained power-loss receipts remain a future native
+  # adapter gate rather than a claim made by this shell implementation.
+  sync || {
+    rm -f "$ib_store_tmp"
+    return "$IB_STORE_IO_FAILURE"
+  }
+  if ! mv "$ib_store_tmp" "$ib_store_final"; then
+    rm -f "$ib_store_tmp"
+    return "$IB_STORE_IO_FAILURE"
+  fi
+  sync || return "$IB_STORE_IO_FAILURE"
+}
+
+ib_store_read() {
+  if test "$#" -ne 3; then
+    return "$IB_STORE_INVALID_INPUT"
+  fi
+  ib_store_root=$1
+  ib_store_backend=$2
+  ib_store_object=$3
+  ib_store_valid_atom "$ib_store_object" || return "$IB_STORE_INVALID_INPUT"
+  ib_store_require_backend "$ib_store_root" "$ib_store_backend" || return $?
+  ib_store_final="$ib_store_root/objects/$ib_store_object"
+  if ! test -f "$ib_store_final"; then
+    printf 'object-absent id=%s\n' "$ib_store_object" >&2
+    return "$IB_STORE_OBJECT_ABSENT"
+  fi
+  cat "$ib_store_final"
+}
