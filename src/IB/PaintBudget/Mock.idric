@@ -1,0 +1,20 @@
+module IB.PaintBudget.Mock
+
+import IB.PaintBudget
+
+-- Test-only work classes.  Real renderer adapters estimate from their own
+-- display work and return the renderer-neutral PaintEstimate.
+public export
+choice mock_paint_work one_of
+  small_text
+  expensive_effect
+  pathological_effect
+
+public export
+mock_estimate : mock_paint_work → PaintEstimate
+mock_estimate small_text =
+  Estimate (milliseconds 4) (Just (milliseconds 2))
+mock_estimate expensive_effect =
+  Estimate (milliseconds 40) (Just (milliseconds 8))
+mock_estimate pathological_effect =
+  Estimate (milliseconds 80) (Just (milliseconds 20))
