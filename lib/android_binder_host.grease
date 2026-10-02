@@ -76,3 +76,13 @@ ib_binder_worker_read_result() {
 ib_binder_worker_observe() {
   ib_shizuku_worker_observe "$@"
 }
+
+# Capability observation is also selected through Binder. Provider-specific
+# provenance remains visible in the returned rows.
+ib_binder_capabilities_remote_snapshot() {
+  ib_shizuku_capabilities_remote_snapshot "$@"
+}
+
+ib_binder_capabilities_open_app_report() {
+  ib_shizuku_capabilities_open_app_report "$@"
+}
