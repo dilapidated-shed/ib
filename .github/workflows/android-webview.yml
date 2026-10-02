@@ -226,17 +226,17 @@ jobs:
             adb install -r downloaded-apk/app/build/outputs/apk/debug/app-debug.apk
             adb shell am force-stop org.isomorphisms.ib.webview
             adb shell am start -W -n org.isomorphisms.ib.webview/.LongViewActivity --es fixture heavy
-            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do adb shell run-as org.isomorphisms.ib.webview find files/receipts -type f -exec cat {} \; | tr -d '\r' > /tmp/ib-longview-before.tsv || true; grep -F 'first-useful' /tmp/ib-longview-before.tsv | grep -F 'durable-result=committed' >/dev/null && break; sleep 1; done
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do adb shell "run-as org.isomorphisms.ib.webview sh -c 'cat files/receipts/*/*.tsv 2>/dev/null'" | tr -d '\r' > /tmp/ib-longview-before.tsv || true; grep -F 'first-useful' /tmp/ib-longview-before.tsv | grep -F 'durable-result=committed' >/dev/null && break; sleep 1; done
             grep -F 'first-useful' /tmp/ib-longview-before.tsv | grep -F 'marker=heavy-v1' | grep -F 'durable-result=committed'
             grep -F 'first-useful' /tmp/ib-longview-before.tsv | grep -F 'renderer-pss=not-measured'
-            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do adb shell run-as org.isomorphisms.ib.webview find files/receipts -type f -exec cat {} \; | tr -d '\r' > /tmp/ib-longview-before.tsv || true; grep -F 'heavy-metrics' /tmp/ib-longview-before.tsv | grep -F 'point=page-finished' >/dev/null && break; sleep 1; done
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do adb shell "run-as org.isomorphisms.ib.webview sh -c 'cat files/receipts/*/*.tsv 2>/dev/null'" | tr -d '\r' > /tmp/ib-longview-before.tsv || true; grep -F 'heavy-metrics' /tmp/ib-longview-before.tsv | grep -F 'point=page-finished' >/dev/null && break; sleep 1; done
             test "$(grep -F 'heavy-metrics' /tmp/ib-longview-before.tsv | grep -F 'point=page-finished' | tail -1 | sed -n 's/.*served-body-bytes=\([0-9][0-9]*\).*/\1/p')" -ge 2097152
             adb shell pidof org.isomorphisms.ib.webview | tr -d '\r' > /tmp/ib-longview-pid-before
             test -s /tmp/ib-longview-pid-before
             adb shell am force-stop org.isomorphisms.ib.webview
             for attempt in 1 2 3 4 5 6 7 8 9 10; do test -z "$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')" && break; sleep 1; done
             adb shell am start -W -n org.isomorphisms.ib.webview/.LongViewActivity
-            for attempt in 1 2 3 4 5 6 7 8 9 10; do adb shell run-as org.isomorphisms.ib.webview find files/receipts -type f -exec cat {} \; | tr -d '\r' > /tmp/ib-longview-after.tsv || true; grep -F 'retained-result' /tmp/ib-longview-after.tsv | grep -F 'reason=startup' | grep -F 'exact=true' | grep -F 'reacquired=false' >/dev/null && break; sleep 1; done
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do adb shell "run-as org.isomorphisms.ib.webview sh -c 'cat files/receipts/*/*.tsv 2>/dev/null'" | tr -d '\r' > /tmp/ib-longview-after.tsv || true; grep -F 'retained-result' /tmp/ib-longview-after.tsv | grep -F 'reason=startup' | grep -F 'exact=true' | grep -F 'reacquired=false' >/dev/null && break; sleep 1; done
             grep -F 'retained-result' /tmp/ib-longview-after.tsv | grep -F 'reason=startup' | grep -F 'result-id=longview-heavy-v1' | grep -F 'exact=true' | grep -F 'reacquired=false'
             test "$(grep -c 'first-useful' /tmp/ib-longview-after.tsv)" -eq 1
             test "$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')" != "$(cat /tmp/ib-longview-pid-before)"
