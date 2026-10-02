@@ -63,138 +63,8 @@ ib_capabilities_catfood_state() {
   done < "$receipt"
 }
 
-ib_android_capabilities_remote_snapshot() {
-  # One rish process collects the read-only Android view. This is deliberately
-  # static trusted command text: page/user/model strings are never interpolated.
-  remote_script=$(cat <<'IB_CAPABILITIES_REMOTE'
-# IB_CAPABILITIES_REMOTE_V1
-one_line() { tr "\t\r\n" "   "; }
-emit() {
-  kind=$1; name=$2; status=$3; authority=$4; value=$5
-  value=$(printf "%s" "$value" | one_line)
-  printf "%s\t%s\t%s\t%s\t%s\n" "$kind" "$name" "$status" "$authority" "$value"
-}
-probe() {
-  name=$1; shift
-  output=$("$@" 2>&1); code=$?
-  if test "$code" -eq 0 && test -n "$output"; then
-    emit field "$name" reported shizuku-shell "$output"
-  elif test "$code" -eq 0; then
-    emit field "$name" unknown shizuku-shell empty
-  else
-    emit field "$name" unknown shizuku-shell "exit=$code $output"
-  fi
-}
-probe remote_uid id -u
-probe identity id
-probe selinux_context id -Z
-probe product_model getprop ro.product.model
-probe build_fingerprint getprop ro.build.fingerprint
-probe android_release getprop ro.build.version.release
-probe android_sdk getprop ro.build.version.sdk
-probe abi_list getprop ro.product.cpu.abilist
-probe abi_list_32 getprop ro.product.cpu.abilist32
-probe abi_list_64 getprop ro.product.cpu.abilist64
-df_output=$(df -Pk 2>&1); df_code=$?
-if test "$df_code" -eq 0; then
-  count=0
-  printf "%s\n" "$df_output" | while IFS= read -r line; do
-    emit storage_df row measured shizuku-shell "$line"
-    count=$((count + 1))
-    test "$count" -lt 128 || break
-  done
-else
-  emit storage_df error unknown shizuku-shell "exit=$df_code $df_output"
-fi
-volume_output=$(sm list-volumes all 2>&1); volume_code=$?
-if test "$volume_code" -eq 0; then
-  count=0
-  printf "%s\n" "$volume_output" | while IFS= read -r line; do
-    emit storage_volume row reported shizuku-shell "$line"
-    count=$((count + 1))
-    test "$count" -lt 64 || break
-  done
-else
-  emit storage_volume error unknown shizuku-shell "exit=$volume_code $volume_output"
-fi
-public_uuid=
-if test "$volume_code" -eq 0; then
-  public_uuid=$(printf "%s\n" "$volume_output" | while IFS=' ' read -r volume_kind volume_state volume_uuid rest; do
-    case "$volume_kind" in
-      public:*)
-        if test "$volume_state" = mounted && test -n "$volume_uuid" && test "$volume_uuid" != null; then
-          printf "%s\n" "$volume_uuid"
-          break
-        fi
-        ;;
-    esac
-  done)
-fi
-if test -n "$public_uuid"; then
-  public_mount=/storage/$public_uuid
-  public_df=$(printf "%s\n" "$df_output" | awk -v wanted="$public_mount" '$NF == wanted { print; exit }' 2>/dev/null)
-  emit field storage_profile measured shizuku-shell mounted-public-volume-observed
-  emit field bulk_candidate_mount measured shizuku-shell "$public_mount"
-  if test -n "$public_df"; then
-    set -- $public_df
-    emit field bulk_candidate_total_kib measured shizuku-shell "${2:-unknown}"
-    emit field bulk_candidate_available_kib measured shizuku-shell "${4:-unknown}"
-  else
-    emit field bulk_candidate_capacity unknown shizuku-shell "df-row-not-found $public_mount"
-  fi
-else
-  emit field storage_profile measured shizuku-shell no-mounted-public-volume-observed
-  emit field bulk_candidate_mount unknown shizuku-shell none
-fi
-emit field ib_app_writer_access unknown android-app "requires app-side probe; shell-visible mount is not proof of app write access"
-mount_output=$(mount 2>&1); mount_code=$?
-if test "$mount_code" -eq 0; then
-  count=0
-  printf "%s\n" "$mount_output" | while IFS= read -r line; do
-    case "$line" in
-      *" /data "*|*" /storage/"*|*" /mnt/media_rw/"*)
-        emit storage_mount row reported shizuku-shell "$line"
-        count=$((count + 1))
-        test "$count" -lt 128 || break
-        ;;
-    esac
-  done
-else
-  emit storage_mount error unknown shizuku-shell "exit=$mount_code $mount_output"
-fi
-if test -r /proc/meminfo; then
-  count=0
-  while IFS= read -r line; do
-    case "$line" in
-      MemTotal:*|MemAvailable:*|SwapTotal:*|SwapFree:*|Zram:*)
-        emit memory row measured shizuku-shell "$line"
-        count=$((count + 1))
-        test "$count" -lt 16 || break
-        ;;
-    esac
-  done < /proc/meminfo
-else
-  emit memory meminfo denied shizuku-shell unreadable
-fi
-if test -r /proc/pressure/memory; then
-  pressure=$(cat /proc/pressure/memory 2>&1)
-  emit memory pressure reported shizuku-shell "$pressure"
-else
-  emit memory pressure unknown shizuku-shell unavailable
-fi
-if printf "%s\n" "$mount_output" | grep -i appendfat >/dev/null 2>&1; then
-  emit field appendfat_status measured shizuku-shell installed-observed
-else
-  emit field appendfat_status unknown shizuku-shell not-observed
-fi
-emit field capacity_pool_relationship unknown shizuku-shell "df filesystems and Android volumes are observations, not proof of physical backing equivalence"
-IB_CAPABILITIES_REMOTE
-)
-  ib_binder_run "$remote_script"
-}
-
 ib_android_capabilities_open_app_report() {
-  ib_binder_run 'am start -W -n org.isomorphisms.ib.webview/.DeviceCapabilitiesActivity'
+  ib_binder_capabilities_open_app_report
 }
 
 ib_android_capabilities_report() {
@@ -212,11 +82,11 @@ ib_android_capabilities_report() {
     ib_capabilities_emit field appendfat_simulation reported local disabled
   fi
 
-  if remote_output=$(ib_android_capabilities_remote_snapshot 2>&1); then
+  if remote_output=$(ib_binder_capabilities_remote_snapshot 2>&1); then
     printf '%s\n' "$remote_output"
   else
     status=$?
-    ib_capabilities_emit field shizuku_snapshot failed local "exit=$status $remote_output"
+    ib_capabilities_emit field binder_snapshot failed local "exit=$status $remote_output"
     return "$status"
   fi
 }
