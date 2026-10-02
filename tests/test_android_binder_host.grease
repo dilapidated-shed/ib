@@ -33,6 +33,24 @@ ib_shizuku_signal_owned() {
 }
 ib_shizuku_package_pids() { test "$1" = org.isomorphisms.ib; printf '%s\n' 4242; }
 ib_shizuku_force_stop_package() { test "$1" = org.isomorphisms.ib; }
+ib_shizuku_worker_start() {
+  test "$1" = work-1
+  test "$2" = result-1
+  test "$3" = immediate
+  printf 'worker\t123\t999\tworker\n'
+}
+ib_shizuku_worker_status() { test "$1" = work-1; printf '%s\n' committed; }
+ib_shizuku_worker_read_result() { test "$1" = result-1; printf '%s\n' result-via-provider; }
+ib_shizuku_worker_observe() {
+  test "$1" = work-1
+  test "$2" = result-1
+  test "$3" = 123
+  test "$4" = 999
+  test "$5" = worker
+  printf '%s\n' committed
+}
+ib_shizuku_capabilities_remote_snapshot() { printf '%s\n' capability-via-provider; }
+ib_shizuku_capabilities_open_app_report() { printf '%s\n' app-report-via-provider; }
 
 . "$repository_root/lib/android_binder_host.grease"
 
@@ -49,6 +67,12 @@ test "$(ib_binder_process_identity 123)" = "$(printf '123\t999\tworker')"
 ib_binder_signal_owned 123 999 worker TERM
 test "$(ib_binder_package_pids org.isomorphisms.ib)" = 4242
 ib_binder_force_stop_package org.isomorphisms.ib
+test "$(ib_binder_worker_start work-1 result-1 immediate)" = "$(printf 'worker\t123\t999\tworker')"
+test "$(ib_binder_worker_status work-1)" = committed
+test "$(ib_binder_worker_read_result result-1)" = result-via-provider
+test "$(ib_binder_worker_observe work-1 result-1 123 999 worker)" = committed
+test "$(ib_binder_capabilities_remote_snapshot)" = capability-via-provider
+test "$(ib_binder_capabilities_open_app_report)" = app-report-via-provider
 
 for generic in \
   lib/android_longview_worker.grease \
