@@ -96,6 +96,35 @@ JavaScript is an escalation, not an assumption. If source bytes or a structured 
 
 An unsupported input may safely remain unknown, be discarded, or be handed to an available full renderer. Its existence does not create a general compatibility obligation for IB.
 
+## Paint budgeting
+
+Once a renderer has enough display work to predict cost, IB should ask for an
+estimate **before** starting the paint.  The estimate is derived renderer state,
+not canonical browser state, and it may be specific to the current device,
+backend, cache state, and candidate fidelity.
+
+The browser-owned policy compares the estimated full-fidelity paint with the
+remaining visual budget.  The initial policy boundary is deliberately small:
+
+1. use full fidelity when its estimate fits;
+2. otherwise use a renderer-supplied reduced-fidelity candidate when that fits;
+3. otherwise reuse the previous paint when one exists;
+4. otherwise defer the visual paint rather than beginning work already predicted
+   to miss the budget badly.
+
+This policy does not change layout, source representation, tab identity, or task
+state.  A reduced candidate describes visual work only.  The renderer remains
+responsible for defining what its reduced candidate means; the browser core does
+not encode Android, GPU, CSS-effect, or display-list details as semantic truth.
+
+After an actual paint, the adapter may report predicted and measured durations so
+a replaceable estimator can improve on that device/backend.  Those observations
+are evidence for future estimates, not durable facts about the page.
+
+`IB.PaintBudget` contains the renderer-neutral stub.  `IB.PaintBudget.Mock`
+contains deterministic test-only estimates for policy acceptance; its mock work
+classes do not define the eventual estimator feature set.
+
 ## Relation to renderer capabilities
 
 Renderer capabilities still govern live page sessions, including HTML, CSS, JavaScript, canvas, media, accessibility trees, and recoverable DOM state.
