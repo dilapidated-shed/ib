@@ -34,6 +34,27 @@
             </intent-filter>
         </activity>
 
+        <provider
+            android:name=".LiveChannelProvider"
+            android:authorities="org.isomorphisms.ib.webview.live"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <grant-uri-permission android:pathPrefix="/channel/" />
+        </provider>
+
+        <activity
+            android:name=".LiveChannelFixtureActivity"
+            android:exported="true"
+            android:label="IB Live PFD Channel">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data
+                    android:host="live-channel-fixture"
+                    android:scheme="ib" />
+            </intent-filter>
+        </activity>
+
         <activity
             android:name=".DeviceCapabilitiesActivity"
             android:exported="true"
