@@ -7,6 +7,7 @@ case $0 in
 esac
 repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
 . "$repository_root/lib/android_shizuku_host.grease"
+. "$repository_root/lib/android_binder_host.grease"
 . "$repository_root/lib/android_longview_worker.grease"
 
 work=$(mktemp -d)
@@ -123,7 +124,7 @@ cmp "$first" "$work/read-after-authority"
 delayed=$(ib_longview_worker_start work-delayed result-delayed delayed)
 test "$delayed" = "$(printf 'worker\t124\t1000\tsh')"
 test "$(ib_longview_worker_status work-delayed)" = running
-ib_shizuku_signal_owned 124 1000 sh TERM
+ib_binder_signal_owned 124 1000 sh TERM
 test "$(ib_longview_worker_status work-delayed)" = killed
 test "$(ib_longview_worker_observe work-delayed result-delayed 124 1000 sh)" = gone-uncommitted
 test "$(ib_longview_worker_observe work-1 result-1 123 999 sh)" = committed
