@@ -1,0 +1,49 @@
+#!/usr/bin/env grease
+set -eu
+
+case $0 in
+  */*) script_directory=${0%/*} ;;
+  *) script_directory=. ;;
+esac
+repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
+. "$repository_root/lib/android_shizuku_host.grease"
+. "$repository_root/lib/android_longview_worker.grease"
+
+usage() {
+  printf 'usage: %s start WORK_ID RESULT_ID immediate|delayed | status WORK_ID | read RESULT_ID\n' "$0" >&2
+}
+
+command=${1:-}
+test -n "$command" || {
+  usage
+  exit 2
+}
+shift
+
+case "$command" in
+  start)
+    test "$#" -eq 3 || {
+      usage
+      exit 2
+    }
+    ib_longview_worker_start "$1" "$2" "$3"
+    ;;
+  status)
+    test "$#" -eq 1 || {
+      usage
+      exit 2
+    }
+    ib_longview_worker_status "$1"
+    ;;
+  read)
+    test "$#" -eq 1 || {
+      usage
+      exit 2
+    }
+    ib_longview_worker_read_result "$1"
+    ;;
+  *)
+    usage
+    exit 2
+    ;;
+esac
