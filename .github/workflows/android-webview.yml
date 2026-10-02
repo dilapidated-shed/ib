@@ -242,3 +242,35 @@ jobs:
             test "$(grep -c 'first-useful' /tmp/ib-longview-after.tsv)" -eq 1
             test "$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')" != "$(cat /tmp/ib-longview-pid-before)"
             printf '%s\n' 'PASS: real Longview committed a useful heavy-page result and reopened it after whole-host loss without reacquisition.'
+
+
+  longview-renderer-loss:
+    needs: build-apk
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ib-durable-result-provider-apks
+          path: downloaded-apk
+
+      - name: Prove useful result survives renderer loss without host loss
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 29
+          arch: x86_64
+          profile: pixel_2
+          disable-animations: true
+          script: |
+            test -f downloaded-apk/app/build/outputs/apk/debug/app-debug.apk
+            adb install -r downloaded-apk/app/build/outputs/apk/debug/app-debug.apk
+            adb shell am force-stop org.isomorphisms.ib.webview
+            adb shell am start -W -n org.isomorphisms.ib.webview/.LongViewActivity --es fixture heavy --ez kill_renderer_after_useful true
+            adb shell pidof org.isomorphisms.ib.webview | tr -d '\r' > /tmp/ib-longview-host-before
+            test -s /tmp/ib-longview-host-before
+            for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do adb shell "run-as org.isomorphisms.ib.webview sh -c 'cat files/receipts/*/*.tsv 2>/dev/null'" | tr -d '\r' > /tmp/ib-longview-renderer.tsv || true; grep -F 'renderer-gone' /tmp/ib-longview-renderer.tsv >/dev/null && grep -F 'retained-result' /tmp/ib-longview-renderer.tsv | grep -F 'reason=renderer-loss' | grep -F 'exact=true' | grep -F 'reacquired=false' >/dev/null && break; sleep 1; done
+            grep -F 'first-useful' /tmp/ib-longview-renderer.tsv | grep -F 'durable-result=committed'
+            grep -F 'renderer' /tmp/ib-longview-renderer.tsv | grep -F 'acceptance-termination-after-first-useful=true'
+            grep -F 'renderer-gone' /tmp/ib-longview-renderer.tsv
+            grep -F 'retained-result' /tmp/ib-longview-renderer.tsv | grep -F 'reason=renderer-loss' | grep -F 'result-id=longview-heavy-v1' | grep -F 'exact=true' | grep -F 'reacquired=false'
+            test "$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')" = "$(cat /tmp/ib-longview-host-before)"
+            printf '%s\n' 'PASS: Longview retained the committed useful result across renderer loss while the host process stayed alive.'
