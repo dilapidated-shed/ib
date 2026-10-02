@@ -1,0 +1,60 @@
+# Grease source. Binder is IB's Android host/process contract. Shizuku is the
+# current provider of Binder authority on stock experimental devices.
+#
+# This file is deliberately tiny. Longview and other IB code call ib_binder_*
+# operations. The platform assembly currently loads android_shizuku_host.grease
+# first, and these functions lower the Binder contract through that provider.
+#
+# Replacing Shizuku later must not require changing Longview semantics.
+
+ib_binder_provider() {
+  printf '%s\n' 'shizuku'
+}
+
+ib_binder_run() {
+  ib_shizuku_run "$@"
+}
+
+ib_binder_run_bounded() {
+  ib_shizuku_run_bounded "$@"
+}
+
+ib_binder_authority() {
+  ib_shizuku_authority "$@"
+}
+
+ib_binder_identity() {
+  ib_shizuku_identity "$@"
+}
+
+ib_binder_process_snapshot() {
+  ib_shizuku_process_snapshot "$@"
+}
+
+ib_binder_validate_pid() {
+  ib_shizuku_validate_pid "$@"
+}
+
+ib_binder_validate_start_ticks() {
+  ib_shizuku_validate_start_ticks "$@"
+}
+
+ib_binder_validate_process_name() {
+  ib_shizuku_validate_process_name "$@"
+}
+
+ib_binder_process_identity() {
+  ib_shizuku_process_identity "$@"
+}
+
+ib_binder_signal_owned() {
+  ib_shizuku_signal_owned "$@"
+}
+
+ib_binder_package_pids() {
+  ib_shizuku_package_pids "$@"
+}
+
+ib_binder_force_stop_package() {
+  ib_shizuku_force_stop_package "$@"
+}
