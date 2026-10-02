@@ -77,6 +77,7 @@ public final class LongViewActivity extends Activity {
     private long app_data_bytes_at_heavy_start;
     private long cumulative_offscreen_ms;
     private long peak_host_pss_kib;
+    private boolean kill_renderer_after_useful;
 
     @Override
     protected void onCreate(Bundle saved_instance_state) {
@@ -85,6 +86,8 @@ public final class LongViewActivity extends Activity {
         run_identity = "run-" + UUID.randomUUID();
         store = new DurableTaskStore(getFilesDir().toPath());
         result_store = new DurableResultStore(getFilesDir().toPath());
+        kill_renderer_after_useful =
+            getIntent().getBooleanExtra("kill_renderer_after_useful", false);
 
         String supplied_url = getIntent().getStringExtra("url");
         String requested_url = supplied_url == null || supplied_url.trim().isEmpty()
@@ -152,6 +155,8 @@ public final class LongViewActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        kill_renderer_after_useful =
+            intent.getBooleanExtra("kill_renderer_after_useful", false);
         String fixture = intent.getStringExtra("fixture");
         if ("heavy".equals(fixture)) {
             start_heavy_fixture();
@@ -388,6 +393,7 @@ public final class LongViewActivity extends Activity {
                         + " priority=" + detail.rendererPriorityAtExit()
                         + " form-dirty=" + form_dirty + " " + task_receipt("lost")
                 );
+                report_retained_heavy_result("renderer-loss");
                 if (dead_view == web_view) {
                     web_container.removeView(dead_view);
                     dead_view.destroy();
@@ -557,6 +563,10 @@ public final class LongViewActivity extends Activity {
                 "first-useful",
                 "marker=heavy-v1 durable-result=committed " + heavy_metrics("first-useful")
             );
+            if (kill_renderer_after_useful) {
+                record("renderer", "acceptance-termination-after-first-useful=true");
+                handler.postDelayed(this::kill_renderer, 250);
+            }
         } catch (IOException | RuntimeException exception) {
             record(
                 "first-useful",
