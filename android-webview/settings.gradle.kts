@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "IB WebView Acceptance"
-include(":app")
+include(":app", ":result-reader")

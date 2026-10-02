@@ -23,8 +23,8 @@ android {
         applicationId = "org.isomorphisms.ib.webview"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "0.5.0"
+        versionCode = 6
+        versionName = "0.6.0"
         buildConfigField("String", "IB_SOURCE_HEAD", "\"$ibSourceHead\"")
     }
 
@@ -122,6 +122,36 @@ tasks.register("verifyWebViewBoundary") {
             && !capabilities.contains("createNewFile")
             && !capabilities.contains("mkdir")) {
             "The #95 app-side capability report must remain read-only."
+        }
+
+        val provider = file(
+            "src/main/java/org/isomorphisms/ib/webview/DurableResultProvider.java"
+        ).readText()
+        val resultStore = file(
+            "src/main/java/org/isomorphisms/ib/webview/DurableResultStore.java"
+        ).readText()
+        val manifest = file("src/main/AndroidManifest.xml").readText()
+
+        check(provider.contains("ParcelFileDescriptor.open")) {
+            "Each durable-result open must return an ordinary read-only descriptor."
+        }
+        check(provider.contains("Binder.getCallingUid()")) {
+            "The physical receipt must expose the cross-UID caller boundary."
+        }
+        check(manifest.contains("android:grantUriPermissions=\"true\"")) {
+            "The provider must use explicit URI grants."
+        }
+        check(manifest.contains("android:name=\".DurableResultProvider\"")) {
+            "The issue #84 provider must be declared."
+        }
+        check(manifest.contains("android:exported=\"false\"")) {
+            "The durable result provider must not become a generally exported file server."
+        }
+        check(resultStore.contains("resolve(\"durable-results\")")) {
+            "Durable result bytes must live under app-private files storage."
+        }
+        check(!resultStore.contains("cache")) {
+            "The durable result fixture must not use Android cache storage."
         }
 
         val apks = fileTree("build/outputs/apk/debug") { include("*.apk") }.files
