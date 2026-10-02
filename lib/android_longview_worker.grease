@@ -99,7 +99,7 @@ name=\$(tr -d '\\r\\n' <\"\$comm\")
 test -n \"\$start\" && test -n \"\$name\" || exit 44
 printf 'worker\\t%s\\t%s\\t%s\\n' \"\$pid\" \"\$start\" \"\$name\""
 
-  ib_shizuku_run_bounded 5 "$command_text"
+  ib_binder_run_bounded 5 "$command_text"
 }
 
 ib_longview_worker_status() {
@@ -123,7 +123,7 @@ test -f \"\$status\" || exit 68
 bytes=\$(wc -c <\"\$status\" | tr -d '[:space:]')
 test \"\$bytes\" -le 64 || exit 69
 cat \"\$status\""
-  ib_shizuku_run_bounded 5 "$command_text"
+  ib_binder_run_bounded 5 "$command_text"
 }
 
 ib_longview_worker_read_result() {
@@ -147,7 +147,7 @@ test -f \"\$final\" || exit 68
 bytes=\$(wc -c <\"\$final\" | tr -d '[:space:]')
 test \"\$bytes\" -le 256 || exit 69
 cat \"\$final\""
-  ib_shizuku_run_bounded 5 "$command_text"
+  ib_binder_run_bounded 5 "$command_text"
 }
 
 
@@ -164,9 +164,9 @@ ib_longview_worker_observe() {
 
   ib_longview_worker_validate_atom "$work_id" || return 2
   ib_longview_worker_validate_atom "$result_id" || return 2
-  ib_shizuku_validate_pid "$pid" || return 2
-  ib_shizuku_validate_start_ticks "$start_ticks" || return 2
-  ib_shizuku_validate_process_name "$process_name" || return 2
+  ib_binder_validate_pid "$pid" || return 2
+  ib_binder_validate_start_ticks "$start_ticks" || return 2
+  ib_binder_validate_process_name "$process_name" || return 2
 
   command_text="# IB_LONGVIEW_WORKER_OBSERVE_V1
 set -eu
@@ -204,5 +204,5 @@ if test -r \"\$stat\" && test -r \"\$comm\"; then
 else
   printf 'gone-uncommitted\\n'
 fi"
-  ib_shizuku_run_bounded 5 "$command_text"
+  ib_binder_run_bounded 5 "$command_text"
 }
