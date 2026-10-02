@@ -99,6 +99,23 @@ exercise_core() {
   ./build/exec/ib-occurrence-smoke | tee /tmp/ib-occurrence-smoke.txt
   cmp "$repository_root/tests/fixtures/occurrence-smoke.expected" \
     /tmp/ib-occurrence-smoke.txt
+
+  "$idric_prefix/bin/idris2" StorageAdmissionSmoke.idric \
+    -o ib-storage-admission-smoke \
+    2>&1 | tee /tmp/idric-storage-admission-compile.txt
+  test -x ./build/exec/ib-storage-admission-smoke
+  ! grep -q '^Error:' /tmp/idric-storage-admission-compile.txt
+  ./build/exec/ib-storage-admission-smoke | tee /tmp/ib-storage-admission-smoke.txt
+  grep -Fx 'storage-admission-concurrent=True' /tmp/ib-storage-admission-smoke.txt
+  grep -Fx 'storage-admission-reflected=True' /tmp/ib-storage-admission-smoke.txt
+  grep -Fx 'storage-admission-wide=True' /tmp/ib-storage-admission-smoke.txt
+  grep -Fx 'storage-admission-distinct-failures=True' /tmp/ib-storage-admission-smoke.txt
+  grep -Fx 'storage-admission-negative-rejected=True' /tmp/ib-storage-admission-smoke.txt
+
+  cd "$repository_root"
+  sh -n lib/durable_object_store.grease
+  sh -n tests/test_durable_object_store.grease
+  sh tests/test_durable_object_store.grease
 }
 
 exercise_workbench() {
