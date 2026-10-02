@@ -50,4 +50,17 @@ ib_binder_signal_owned 123 999 worker TERM
 test "$(ib_binder_package_pids org.isomorphisms.ib)" = 4242
 ib_binder_force_stop_package org.isomorphisms.ib
 
+for generic in \
+  lib/android_longview_worker.grease \
+  lib/android_device_capabilities.grease \
+  bin/ib_android_longview_worker.grease \
+  bin/accept_android_longview_worker.grease \
+  bin/ib_android_capabilities.grease
+do
+  if grep -n 'ib_shizuku_' "$repository_root/$generic" >/dev/null; then
+    printf 'generic Binder-facing file calls Shizuku directly: %s\n' "$generic" >&2
+    exit 1
+  fi
+done
+
 printf '%s\n' 'android Binder host boundary tests: ok'
