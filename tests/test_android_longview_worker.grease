@@ -49,6 +49,18 @@ case "$command_text" in
       printf 'worker\t124\t1000\tsh\n'
     fi
     ;;
+  *IB_LONGVIEW_WORKER_OBSERVE_V1*)
+    work_id=$(printf '%s\n' "$command_text" | sed -n 's/^work=//p')
+    result_id=$(printf '%s\n' "$command_text" | sed -n 's/^result=//p')
+    if test -f "$FAKE_WORKER_STATE/result-$result_id"; then
+      printf 'committed\n'
+    elif test -f "$FAKE_WORKER_STATE/status-$work_id" &&
+         test "$(cat "$FAKE_WORKER_STATE/status-$work_id")" = running; then
+      printf 'running\n'
+    else
+      printf 'gone-uncommitted\n'
+    fi
+    ;;
   *IB_LONGVIEW_WORKER_STATUS_V1*)
     work_id=$(printf '%s\n' "$command_text" | sed -n 's/^work=//p')
     test -f "$FAKE_WORKER_STATE/status-$work_id" || exit 68
@@ -111,6 +123,8 @@ test "$delayed" = "$(printf 'worker\t124\t1000\tsh')"
 test "$(ib_longview_worker_status work-delayed)" = running
 ib_shizuku_signal_owned 124 1000 sh TERM
 test "$(ib_longview_worker_status work-delayed)" = killed
+test "$(ib_longview_worker_observe work-delayed result-delayed 124 1000 sh)" = gone-uncommitted
+test "$(ib_longview_worker_observe work-1 result-1 123 999 sh)" = committed
 
 before=$(wc -c <"$first")
 if ib_longview_worker_start 'work;bad' result-x immediate >/dev/null 2>&1; then
