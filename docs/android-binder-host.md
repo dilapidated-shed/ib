@@ -4,6 +4,10 @@
 
 IB is designed around **Binder**, not around Shizuku.
 
+Binder itself is an Android kernel/IPC facility and does not come from Shizuku.
+The provider boundary below is specifically about **privileged Binder authority**.
+Ordinary IB app-to-app Binder/PFD IPC can use Binder directly.
+
 Longview, worker lifecycle, process identity, callbacks, file-descriptor transfer,
 death/reconnect handling, and selected Android service operations should be
 expressed as Binder-facing capabilities. They must not make Shizuku lifecycle,
@@ -24,8 +28,8 @@ Android Binder / system services / provider-owned worker mechanisms
 ```
 
 `src/IB/Binder.idric` records the same decision in the semantic layer:
-Binder access has a provider, and the only selected provider today is
-`shizuku`.
+privileged Binder access has a provider, and the only selected provider today
+is `shizuku`.
 
 ## Current lowering
 
