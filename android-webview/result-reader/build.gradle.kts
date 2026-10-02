@@ -75,6 +75,22 @@ tasks.register("verifyResultReaderBoundary") {
             "The reader must be scoped to the issue #84 provider authority."
         }
 
+        val liveImplementation = file(
+            "src/main/java/org/isomorphisms/ib/resultreader/LiveChannelActivity.java"
+        ).readText()
+        check(liveImplementation.contains("openFileDescriptor(uri, \"rw\")")) {
+            "The live reader must receive the channel through a read-write PFD."
+        }
+        check(liveImplementation.contains("checkError()")) {
+            "The live reader must distinguish peer close/error when possible."
+        }
+        check(liveImplementation.contains("caller-shim=separate-android-app")) {
+            "The live-channel result must identify the Android shim boundary."
+        }
+        check(manifest.contains("org.isomorphisms.ib.webview.live")) {
+            "The live reader must be scoped to the live provider authority."
+        }
+
         val apks = fileTree("build/outputs/apk/debug") { include("*.apk") }.files
         check(apks.size == 1) { "Expected exactly one reader debug APK, found ${apks.size}." }
     }
