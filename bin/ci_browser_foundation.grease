@@ -112,6 +112,20 @@ exercise_core() {
   grep -Fx 'storage-admission-distinct-failures=True' /tmp/ib-storage-admission-smoke.txt
   grep -Fx 'storage-admission-negative-rejected=True' /tmp/ib-storage-admission-smoke.txt
 
+  "$idric_prefix/bin/idris2" WorkBoundsSmoke.idric \
+    -o ib-work-bounds-smoke \
+    2>&1 | tee /tmp/idric-work-bounds-compile.txt
+  test -x ./build/exec/ib-work-bounds-smoke
+  ! grep -q '^Error:' /tmp/idric-work-bounds-compile.txt
+  ./build/exec/ib-work-bounds-smoke | tee /tmp/ib-work-bounds-smoke.txt
+  grep -Fx 'work-bounds-raw=True' /tmp/ib-work-bounds-smoke.txt
+  grep -Fx 'work-bounds-expanded=True' /tmp/ib-work-bounds-smoke.txt
+  grep -Fx 'work-bounds-diagnostics=True' /tmp/ib-work-bounds-smoke.txt
+  grep -Fx 'work-bounds-pixels=True' /tmp/ib-work-bounds-smoke.txt
+  grep -Fx 'work-bounds-concurrency=True' /tmp/ib-work-bounds-smoke.txt
+  grep -Fx 'work-bounds-dishonest-length=True' /tmp/ib-work-bounds-smoke.txt
+  grep -Fx 'work-bounds-negative=True' /tmp/ib-work-bounds-smoke.txt
+
   cd "$repository_root"
   sh -n lib/durable_object_store.grease
   sh -n tests/test_durable_object_store.grease
