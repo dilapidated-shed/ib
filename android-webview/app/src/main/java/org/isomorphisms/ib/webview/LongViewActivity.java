@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Debug;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Process;
@@ -39,6 +40,12 @@ import java.util.UUID;
 public final class LongViewActivity extends Activity {
     private static final String DEFAULT_URL =
         "https://console.cloud.google.com/auth/scopes?project=cockswain&authuser=5";
+    private static final String HEAVY_RESULT_ID = "longview-heavy-v1";
+    private static final byte[] HEAVY_RESULT_BYTES = (
+        "schema\tib-longview-useful-v1\n"
+            + "fixture\theavy-v1\n"
+            + "status\tuseful\n"
+    ).getBytes(StandardCharsets.UTF_8);
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable periodic_sample = new Runnable() {
@@ -50,6 +57,7 @@ public final class LongViewActivity extends Activity {
     };
 
     private DurableTaskStore store;
+    private DurableResultStore result_store;
     private DurableTaskRecord task;
     private LinearLayout web_container;
     private EditText url_input;
@@ -64,6 +72,11 @@ public final class LongViewActivity extends Activity {
     private int last_progress_bucket = -1;
     private boolean form_dirty;
     private boolean destroyed;
+    private FixtureServer heavy_fixture_server;
+    private boolean first_useful_recorded;
+    private long app_data_bytes_at_heavy_start;
+    private long cumulative_offscreen_ms;
+    private int peak_host_pss_kib;
 
     @Override
     protected void onCreate(Bundle saved_instance_state) {
@@ -71,6 +84,7 @@ public final class LongViewActivity extends Activity {
         started_at = SystemClock.elapsedRealtime();
         run_identity = "run-" + UUID.randomUUID();
         store = new DurableTaskStore(getFilesDir().toPath());
+        result_store = new DurableResultStore(getFilesDir().toPath());
 
         String supplied_url = getIntent().getStringExtra("url");
         String requested_url = supplied_url == null || supplied_url.trim().isEmpty()
@@ -120,6 +134,7 @@ public final class LongViewActivity extends Activity {
             "security",
             "query-fragment-persisted=false form-values-persisted=false cookies-copied=false"
         );
+        report_retained_heavy_result("startup");
 
         attach_webview(new_task);
         if (task.navigation.recovery == DurableNavigation.Recovery.UNAVAILABLE) {
@@ -152,6 +167,7 @@ public final class LongViewActivity extends Activity {
                 ? 0
                 : SystemClock.elapsedRealtime() - offscreen_started_at;
             offscreen_started_at = 0;
+            cumulative_offscreen_ms += offscreen_duration;
             record(
                 "activity",
                 "foreground off-screen-duration-ms=" + offscreen_duration
@@ -174,6 +190,7 @@ public final class LongViewActivity extends Activity {
         destroyed = true;
         handler.removeCallbacks(periodic_sample);
         destroy_webview();
+        close_heavy_fixture();
         super.onDestroy();
     }
 
@@ -227,6 +244,15 @@ public final class LongViewActivity extends Activity {
         sample.setOnClickListener(view -> sample_page("manual"));
         result_row.addView(sample, weighted_button_params());
         root.addView(result_row);
+
+        LinearLayout acceptance_row = controls_row();
+        Button heavy_fixture = button("Heavy fixture");
+        heavy_fixture.setOnClickListener(view -> start_heavy_fixture());
+        acceptance_row.addView(heavy_fixture, weighted_button_params());
+        Button retained_result = button("Retained result");
+        retained_result.setOnClickListener(view -> report_retained_heavy_result("button"));
+        acceptance_row.addView(retained_result, weighted_button_params());
+        root.addView(acceptance_row);
 
         LinearLayout receipt_row = controls_row();
         Button copy_receipt = button("Copy receipt");
@@ -326,6 +352,10 @@ public final class LongViewActivity extends Activity {
                 record("navigation", "page-finished " + safe_target_identity(url));
                 install_form_dirty_tracker(finished_view);
                 sample_page("page-finished");
+                if (heavy_fixture_server != null
+                    && heavy_fixture_server.heavy_url().equals(url)) {
+                    record("heavy-metrics", heavy_metrics("page-finished"));
+                }
             }
 
             @Override
@@ -467,6 +497,140 @@ public final class LongViewActivity extends Activity {
         );
     }
 
+    private void start_heavy_fixture() {
+        close_heavy_fixture();
+        FixtureServer server = new FixtureServer();
+        try {
+            server.start();
+            heavy_fixture_server = server;
+            first_useful_recorded = false;
+            app_data_bytes_at_heavy_start = directory_bytes(getDataDir());
+            peak_host_pss_kib = Debug.getPss();
+            String url = server.heavy_url();
+            begin_browser_navigation(url, "heavy-fixture");
+            url_input.setText(url);
+            form_dirty = false;
+            if (web_view == null) {
+                attach_webview(false);
+            }
+            record(
+                "heavy-fixture",
+                "started useful-result-id=" + HEAVY_RESULT_ID
+                    + " irrelevant-assets=8 asset-bytes-min=262144"
+                    + " " + heavy_metrics("before-load")
+            );
+            web_view.loadUrl(url);
+        } catch (IOException | IllegalArgumentException exception) {
+            server.close();
+            if (heavy_fixture_server == server) {
+                heavy_fixture_server = null;
+            }
+            record(
+                "heavy-fixture",
+                "start-failed class=" + exception.getClass().getSimpleName()
+            );
+        }
+    }
+
+    private void on_first_useful(String marker) {
+        if (first_useful_recorded
+            || !"heavy-v1".equals(marker)
+            || heavy_fixture_server == null
+            || web_view == null
+            || !heavy_fixture_server.heavy_url().equals(web_view.getUrl())) {
+            return;
+        }
+
+        first_useful_recorded = true;
+        peak_host_pss_kib = Math.max(peak_host_pss_kib, Debug.getPss());
+        try {
+            result_store.commit_immutable(HEAVY_RESULT_ID, HEAVY_RESULT_BYTES);
+            record(
+                "first-useful",
+                "marker=heavy-v1 durable-result=committed " + heavy_metrics("first-useful")
+            );
+        } catch (IOException | RuntimeException exception) {
+            record(
+                "first-useful",
+                "marker=heavy-v1 durable-result=failed class="
+                    + exception.getClass().getSimpleName()
+                    + " " + heavy_metrics("first-useful")
+            );
+        }
+    }
+
+    private void report_retained_heavy_result(String reason) {
+        if (result_store == null) {
+            return;
+        }
+        try {
+            byte[] bytes = java.nio.file.Files.readAllBytes(
+                result_store.require_result(HEAVY_RESULT_ID)
+            );
+            boolean exact = java.util.Arrays.equals(bytes, HEAVY_RESULT_BYTES);
+            record(
+                "retained-result",
+                "reason=" + clean(reason)
+                    + " result-id=" + HEAVY_RESULT_ID
+                    + " bytes=" + bytes.length
+                    + " exact=" + exact
+                    + " reacquired=false"
+            );
+        } catch (IOException | RuntimeException exception) {
+            record(
+                "retained-result",
+                "reason=" + clean(reason)
+                    + " result-id=" + HEAVY_RESULT_ID
+                    + " status=absent"
+            );
+        }
+    }
+
+    private String heavy_metrics(String point) {
+        peak_host_pss_kib = Math.max(peak_host_pss_kib, Debug.getPss());
+        long served_bytes = heavy_fixture_server == null
+            ? 0
+            : heavy_fixture_server.served_body_bytes();
+        long responses = heavy_fixture_server == null
+            ? 0
+            : heavy_fixture_server.served_response_count();
+        long app_data_bytes = directory_bytes(getDataDir());
+        long growth = Math.max(0, app_data_bytes - app_data_bytes_at_heavy_start);
+        return "point=" + clean(point)
+            + " served-body-bytes=" + served_bytes
+            + " served-responses=" + responses
+            + " peak-host-pss-kib=" + peak_host_pss_kib
+            + " renderer-pss=not-measured"
+            + " app-data-growth-bytes=" + growth
+            + " cumulative-offscreen-ms=" + cumulative_offscreen_ms;
+    }
+
+    private static long directory_bytes(File file) {
+        if (file == null || !file.exists()) {
+            return 0;
+        }
+        if (file.isFile()) {
+            return file.length();
+        }
+        long total = 0;
+        File[] children = file.listFiles();
+        if (children == null) {
+            return 0;
+        }
+        for (File child : children) {
+            total += directory_bytes(child);
+        }
+        return total;
+    }
+
+    private void close_heavy_fixture() {
+        if (heavy_fixture_server == null) {
+            return;
+        }
+        heavy_fixture_server.close();
+        heavy_fixture_server = null;
+    }
+
     private void install_form_dirty_tracker(WebView view) {
         String script = "(function(){"
             + "if(window.__ib_long_view_form_tracker){return 'already';}"
@@ -482,6 +646,9 @@ public final class LongViewActivity extends Activity {
     private void sample_page(String reason) {
         if (destroyed || web_view == null) {
             return;
+        }
+        if (heavy_fixture_server != null) {
+            peak_host_pss_kib = Math.max(peak_host_pss_kib, Debug.getPss());
         }
         String canary_script = "(function(){"
             + "if(!window.__ib_long_view_heap_canary){"
@@ -692,6 +859,11 @@ public final class LongViewActivity extends Activity {
                     record("forms", "dirty=true values-read=false values-persisted=false");
                 }
             });
+        }
+
+        @JavascriptInterface
+        public void firstUseful(String marker) {
+            runOnUiThread(() -> on_first_useful(marker));
         }
     }
 }
