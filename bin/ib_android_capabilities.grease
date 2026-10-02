@@ -7,6 +7,7 @@ case $0 in
 esac
 repository_root=$(CDPATH= cd -- "$script_directory/.." && pwd)
 . "$repository_root/lib/android_shizuku_host.grease"
+. "$repository_root/lib/android_shizuku_capabilities_provider.grease"
 . "$repository_root/lib/android_binder_host.grease"
 . "$repository_root/lib/android_device_capabilities.grease"
 
