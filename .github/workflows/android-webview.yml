@@ -151,6 +151,7 @@ jobs:
             test "$(adb shell pidof org.isomorphisms.ib.webview | tr -d '\r')" != "$(cat /tmp/ib-provider-pid-before)"
             printf 'PASS: IB provider host PID %s terminated.\n' "$(cat /tmp/ib-provider-pid-before)"
             adb shell am force-stop org.isomorphisms.ib.resultreader
+            adb shell am start -W -n org.isomorphisms.ib.webview/.DurableResultFixtureActivity
             adb shell am start -W -a android.intent.action.VIEW -d content://org.isomorphisms.ib.webview.results/result/hello-v1 -n org.isomorphisms.ib.resultreader/.ResultReaderActivity
             sleep 1
             adb shell run-as org.isomorphisms.ib.resultreader cat files/durable-result-reader.tsv | tr -d '\r' | tee /tmp/ib-durable-result-reader-after-host-death.tsv
